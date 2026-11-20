@@ -285,6 +285,7 @@ test("Gemini receives Tavily results before composing its answer", async () => {
 
   assert.equal(result.json.status, "ok");
   assert.equal(functionResponse.name, "web_search");
+  assert.equal(mock.calls.gemini[1].contents.at(-1).role, "user");
   assert.equal(functionResponse.response.results[0].content, "Dato publicado por la fuente.");
   assert.match(mock.calls.gemini[1].systemInstruction.parts[0].text, /No agregues hechos actuales/);
   assert.ok(app.redis.writes.some(({ key, ex }) => key.startsWith("tavily:q:") && ex === 6 * 60 * 60));
