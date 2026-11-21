@@ -263,7 +263,7 @@ test("future events preserve follow-up history and Argentina time context", asyn
   });
 
   const first = mock.calls.gemini[0];
-  assert.match(first.systemInstruction.parts[0].text, /America\/Argentina\/Buenos_Aires/);
+  assert.match(first.systemInstruction.parts[0].text, /America\/Argentina\/Cordoba/);
   assert.equal(first.contents[0].parts[0].text, "¿Qué partidos importantes hay?");
   assert.equal(first.contents[1].role, "model");
   assert.equal(first.contents[2].parts[0].text, "¿Y cuáles juega Argentina este fin de semana?");
@@ -505,6 +505,9 @@ test("configuration keeps Gemini model and bounds the free monthly cap", () => {
     ASSISTANT_DEVICE_TOKEN: DEVICE_TOKEN,
     UPSTASH_REDIS_REST_URL: "https://example.upstash.io",
     UPSTASH_REDIS_REST_TOKEN: "test-redis-token",
+    SUPABASE_URL: "https://example.supabase.co",
+    SUPABASE_SERVICE_ROLE_KEY: "test-supabase-key",
+    ASSISTANT_FAMILY_MEMBER_ID: "a0b1c2d3-e4f5-4a67-8b90-123456789abc",
   });
   assert.equal(config.model, "gemini-3.5-flash-lite");
   assert.equal(config.monthlyCreditLimit, 900);
@@ -515,6 +518,9 @@ test("configuration keeps Gemini model and bounds the free monthly cap", () => {
     ASSISTANT_DEVICE_TOKEN: DEVICE_TOKEN,
     UPSTASH_REDIS_REST_URL: "https://example.upstash.io",
     UPSTASH_REDIS_REST_TOKEN: "test-redis-token",
+    SUPABASE_URL: "https://example.supabase.co",
+    SUPABASE_SERVICE_ROLE_KEY: "test-supabase-key",
+    ASSISTANT_FAMILY_MEMBER_ID: "a0b1c2d3-e4f5-4a67-8b90-123456789abc",
     TAVILY_MAX_MONTHLY_CREDITS: "1001",
   }), /between 1 and 1000/);
 });

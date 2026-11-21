@@ -1,5 +1,6 @@
 import { createChatHandler, configFromEnv } from "../lib/assistant.mjs";
 import { createUpstashStore } from "../lib/redis_store.mjs";
+import { createSupabaseClient } from "../database/supabase.mjs";
 
 let handler;
 let initializationError;
@@ -11,6 +12,7 @@ export default async function chat(req, res) {
       handler = createChatHandler({
         config,
         redis: createUpstashStore(config),
+        supabase: createSupabaseClient(config),
       });
     } catch (error) {
       initializationError = error;
