@@ -77,6 +77,9 @@ aviso del integrante seleccionado.
    | `TAVILY_SEARCH_DEPTH` | No | `basic` por defecto; también `fast`, `ultra-fast`, `advanced` |
    | `TAVILY_MAX_RESULTS` | No | Por defecto 5; máximo 5 |
    | `MAX_ASSISTANT_REQUESTS_PER_DAY` | No | Por defecto 120; máximo 1000 |
+   | `ASSISTANT_MOBILE_PASSCODE` | Para móvil | Código familiar aleatorio de al menos 24 caracteres; solo en Vercel |
+   | `ASSISTANT_MOBILE_SESSION_SECRET` | Para móvil | Secreto de firma aleatorio de al menos 32 bytes; solo en Vercel |
+   | `ASSISTANT_MOBILE_ORIGINS` | Para móvil | Orígenes HTTPS de la PWA separados por comas, sin rutas |
 
 5. Despliega y copia el dominio HTTPS asignado por Vercel.
 6. En el sketch, reemplaza el host de ejemplo de
@@ -210,6 +213,33 @@ sin llamar a Tavily. En una consulta actual, la respuesta debe traer
 El firmware consulta además `GET /api/members`, `GET
 /api/notifications/pending?speaker_id=<UUID>` y `POST
 /api/notifications/ack`. Todos requieren el mismo Bearer de dispositivo.
+
+## Acceso de la PWA móvil
+
+La app de `../appmobile` no contiene el token del dispositivo ni credenciales
+del proveedor. En Vercel configura un código familiar aleatorio
+(`ASSISTANT_MOBILE_PASSCODE`, mínimo 24 caracteres) y una clave de firma
+(`ASSISTANT_MOBILE_SESSION_SECRET`, mínimo 32 bytes). Genera valores con:
+
+```powershell
+node -e "console.log(require('node:crypto').randomBytes(32).toString('hex'))"
+```
+
+Configura `ASSISTANT_MOBILE_ORIGINS` con el origen exacto de la PWA, por ejemplo
+`https://mi-asistente.vercel.app` (sin `/` final ni rutas). El desarrollo local
+permite `http://localhost:5173` y `http://127.0.0.1:5173`.
+
+`POST /api/mobile/session` valida el código y devuelve los integrantes activos;
+al recibir también `speaker_id`, entrega una sesión firmada por siete días,
+vinculada a ese integrante. La app la envía como Bearer a `POST /api/chat`.
+La sesión expira y entonces se vuelve a pedir el código. Nunca copies el código,
+la clave de firma, el token del dispositivo o claves de Gemini/Tavily al bundle
+de Vite.
+
+Las conversaciones móviles reutilizan el endpoint, el contexto, las memorias y
+las tablas existentes. No se agrega un esquema ni tablas nuevas. El valor
+histórico de canal de conversación permanece sin cambios para no asumir
+constraints del esquema real, que no está versionado en este repositorio.
 
 ## Documentación oficial consultada
 

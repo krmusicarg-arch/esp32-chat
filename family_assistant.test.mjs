@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import test from "node:test";
 import { createChatHandler } from "./lib/assistant.mjs";
 import { createFamilyApiHandler } from "./lib/family_api.mjs";
+import { createMobileSessionToken } from "./lib/mobile_auth.mjs";
 import { createSupabaseClient } from "./database/supabase.mjs";
 
 const DEVICE_TOKEN = "test-device-token-0123456789";
@@ -19,6 +20,7 @@ const CONFIG = {
   apiKey: "test-gemini-key",
   tavilyApiKey: "test-tavily-key",
   deviceToken: DEVICE_TOKEN,
+  mobileSessionSecret: "a".repeat(64),
   familyMemberId: null,
   deviceId: null,
   model: "gemini-3.5-flash-lite",
@@ -431,6 +433,45 @@ test("selected speaker is validated and persisted with author, subject and sourc
   )));
   assert.equal(calls.extraction.length, 1);
   assert.match(calls.gemini[0].systemInstruction.parts[0].text, /America\/Argentina\/Cordoba/);
+});
+
+test("mobile chat uses the selected family member without requiring an active ESP32", async () => {
+  const supabase = new MemorySupabase();
+  const { fetchImpl } = createFetch({
+    memories: [],
+    preferences: [],
+    projects: [],
+    tasks: [],
+    completedTaskIds: [],
+    reopenedTaskIds: [],
+    completedReminderIds: [],
+    subjectMemberId: null,
+  });
+  const deviceId = "e0f1a2b3-c4d5-4678-8a90-123456789abc";
+  const config = { ...CONFIG, deviceId };
+  const handler = createChatHandler({
+    config,
+    redis: new MemoryRedis(),
+    supabase,
+    fetchImpl,
+    clock: () => new Date("2026-03-20T12:00:00.000Z"),
+  });
+  const res = createResponse();
+  const token = createMobileSessionToken(
+    config.mobileSessionSecret,
+    MEMBER_IDS[0],
+    new Date("2026-03-20T12:00:00.000Z"),
+  );
+
+  await handler({
+    method: "POST",
+    headers: { authorization: `Bearer ${token}` },
+    body: { question: "Hola" },
+  }, res);
+
+  assert.equal(res.statusCode, 200);
+  assert.equal(supabase.tables.devices.length, 0);
+  assert.equal(supabase.tables.conversations[0].member_id, MEMBER_IDS[0]);
 });
 
 test("existing projects are updated and proactive follow-ups are persisted without duplication", async () => {

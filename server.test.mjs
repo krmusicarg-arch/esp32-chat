@@ -1,12 +1,14 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { configFromEnv, createChatHandler } from "./lib/assistant.mjs";
+import { createMobileSessionToken } from "./lib/mobile_auth.mjs";
 
 const DEVICE_TOKEN = "test-device-token-0123456789";
 const BASE_CONFIG = {
   apiKey: "test-gemini-key",
   tavilyApiKey: "test-tavily-key",
   deviceToken: DEVICE_TOKEN,
+  mobileSessionSecret: "a".repeat(64),
   model: "gemini-3.5-flash-lite",
   searchEnabled: true,
   searchDepth: "basic",
@@ -133,10 +135,13 @@ function createApp({ config = BASE_CONFIG, fetchImpl, redis = new MemoryStore() 
   });
   return {
     redis,
-    async post(body, token = DEVICE_TOKEN) {
+    async post(body, token = DEVICE_TOKEN, origin) {
       const req = {
         method: "POST",
-        headers: token ? { authorization: `Bearer ${token}` } : {},
+        headers: {
+          ...(token ? { authorization: `Bearer ${token}` } : {}),
+          ...(origin ? { origin } : {}),
+        },
         body,
       };
       const res = {
@@ -150,7 +155,7 @@ function createApp({ config = BASE_CONFIG, fetchImpl, redis = new MemoryStore() 
         },
       };
       await handler(req, res);
-      return { status: res.statusCode, json: JSON.parse(res.body) };
+      return { status: res.statusCode, json: JSON.parse(res.body), headers: res.headers };
     },
   };
 }
@@ -533,4 +538,28 @@ test("request validation and device authentication reject invalid callers", asyn
 
   assert.equal(unauthorized.status, 401);
   assert.equal(invalid.status, 400);
+});
+
+test("mobile chat sessions authenticate and cannot switch speakers", async () => {
+  const mock = createMockFetch();
+  const app = createApp({
+    config: { ...BASE_CONFIG, mobileOrigins: ["https://app.example"] },
+    fetchImpl: mock.fetchImpl,
+  });
+  const speakerId = "a0b1c2d3-e4f5-4a67-8b90-123456789abc";
+  const token = createMobileSessionToken(
+    BASE_CONFIG.mobileSessionSecret,
+    speakerId,
+    TEST_DATE,
+  );
+  const accepted = await app.post({ question: "Hola" }, token, "https://app.example");
+  const rejected = await app.post({
+    question: "Hola",
+    speaker_id: "b0b1c2d3-e4f5-4a67-8b90-123456789abc",
+  }, token);
+
+  assert.equal(accepted.status, 200);
+  assert.equal(accepted.headers["access-control-allow-origin"], "https://app.example");
+  assert.equal(rejected.status, 403);
+  assert.equal(rejected.json.status, "speaker_mismatch");
 });
