@@ -4,6 +4,7 @@ import { createUpstashStore } from "./lib/redis_store.mjs";
 import { createSupabaseClient } from "./database/supabase.mjs";
 import { createFamilyApiHandler } from "./lib/family_api.mjs";
 import { createMobileSessionHandler } from "./lib/mobile_auth.mjs";
+import { createWeatherHandler } from "./lib/weather_controller.mjs";
 
 const config = configFromEnv();
 const supabase = createSupabaseClient(config);
@@ -17,6 +18,7 @@ const familyApiHandler = createFamilyApiHandler({
   supabase,
 });
 const mobileSessionHandler = createMobileSessionHandler({ config, supabase });
+const weatherHandler = createWeatherHandler({ config });
 
 const server = createServer((req, res) => {
   const pathname = new URL(req.url || "/", "http://localhost").pathname;
@@ -28,6 +30,10 @@ const server = createServer((req, res) => {
   }
   if (familyPath === "/mobile/session") {
     mobileSessionHandler(req, res);
+    return;
+  }
+  if (familyPath === "/weather") {
+    weatherHandler(req, res);
     return;
   }
   if (["/members", "/notifications/pending", "/notifications/ack"].includes(familyPath)) {

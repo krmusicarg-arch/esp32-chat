@@ -13,11 +13,13 @@ se ejecuta en Tavily, no mediante Google Search Grounding.
 
 ## Arquitectura
 
-- `server.mjs`: punto de entrada local existente; atiende `/health`, `/chat` y `/api/chat`.
+- `server.mjs`: punto de entrada local existente; atiende `/health`, `/chat`, `/api/chat` y `/api/weather`.
 - `api/chat.mjs`: función Vercel en `POST /api/chat`, usando el mismo handler.
+- `api/weather.mjs`: `POST /api/weather`, consulta autenticada de clima actual y pronóstico mediante Open-Meteo; no llama a Gemini, Tavily ni a la persistencia familiar.
 - `api/members.mjs`: `GET /api/members`, roster para el selector manual.
 - `api/notifications/`: consulta autenticada y ACK de entregas.
 - `lib/assistant.mjs`: autenticación, contexto, selección de búsqueda, límites, síntesis y coordinación familiar.
+- `lib/weather_controller.mjs` y `services/weather_*.mjs`: endpoint autenticado, intención, geocoding Open-Meteo, pronóstico y caché en memoria de 30 minutos.
 - `tools/web_search.js`: cliente HTTPS de Tavily Search y Usage.
 - `lib/redis_store.mjs`: contadores, reserva atómica, bloqueo de duplicados y caché en Upstash Redis.
 - `database/` y `services/`: persistencia Supabase y gestión de familia, conversaciones, memoria, tareas, recordatorios y contexto proactivo.
@@ -80,6 +82,7 @@ aviso del integrante seleccionado.
    | `ASSISTANT_MOBILE_PASSCODE` | Para móvil | Código familiar aleatorio de al menos 24 caracteres; solo en Vercel |
    | `ASSISTANT_MOBILE_SESSION_SECRET` | Para móvil | Secreto de firma aleatorio de al menos 32 bytes; solo en Vercel |
    | `ASSISTANT_MOBILE_ORIGINS` | Para móvil | Orígenes HTTPS de la PWA separados por comas, sin rutas |
+   | `WEATHER_DEFAULT_LOCATION` | No | Localidad para fallback cuando la geolocalización no está disponible; por defecto `Buenos Aires, Argentina` |
 
 5. Despliega y copia el dominio HTTPS asignado por Vercel.
 6. En el sketch, reemplaza el host de ejemplo de
@@ -194,15 +197,27 @@ se deben probar contra producción sin autorización.
 Para una prueba manual en Postman:
 
 - `POST https://<tu-proyecto>.vercel.app/api/chat`
+- `POST https://<tu-proyecto>.vercel.app/api/weather`
 - Header `Content-Type: application/json`
 - Header `Authorization: Bearer <ASSISTANT_DEVICE_TOKEN>`
-- Body raw JSON:
+- Para `/api/chat`, body raw JSON:
 
 ```json
 {
   "question": "¿Qué partidos importantes hay este fin de semana?",
   "history": [],
   "speaker_id": "<UUID_DE_UN_INTEGRANTE>"
+}
+```
+
+Para `/api/weather`, se envía la pregunta y, si el usuario autorizó la
+geolocalización, `current_location` con latitud/longitud. Ese objeto se usa solo
+para esa consulta; el endpoint no guarda conversaciones ni memorias.
+
+```json
+{
+  "question": "¿Va a llover mañana?",
+  "current_location": { "latitude": -34.6, "longitude": -58.4 }
 }
 ```
 
