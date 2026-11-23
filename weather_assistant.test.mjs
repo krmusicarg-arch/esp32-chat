@@ -165,6 +165,23 @@ test("retries GeoNames through its alternate HTTPS endpoint after a connection e
   }
 });
 
+test("uses custom GeoNames API URL from environment or configuration", async () => {
+  const calls = [];
+  const fetchImpl = async (url) => {
+    calls.push(String(url));
+    return new Response(JSON.stringify({ totalResultsCount: 1, geonames: [place("Rosario", "Santa Fe")] }));
+  };
+  const result = await geocodeLocation("Rosario", {
+    fetchImpl,
+    username: "test-user",
+    province: "Santa Fe",
+    apiUrl: "http://api.geonames.org/searchJSON",
+  });
+  assert.equal(result.name, "Rosario");
+  assert.equal(calls.length, 1);
+  assert.ok(calls[0].startsWith("http://api.geonames.org/searchJSON?"));
+});
+
 test("rejects a province contradiction and never searches another country", async () => {
   const { fetchImpl, calls } = openMeteoFetch({ locations: () => [place("Saldán", "Córdoba")] });
   await assert.rejects(() => geocodeLocation("Saldán", { fetchImpl, username: "test-user", province: "Mendoza" }), (error) => {

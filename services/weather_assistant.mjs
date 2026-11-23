@@ -261,6 +261,7 @@ export function createWeatherAssistant({
   weatherService = createWeatherService({ fetchImpl, clock: () => clock().getTime() }),
   defaultLocation = "Buenos Aires, Argentina",
   geonamesUsername = "",
+  geonamesApiUrl = "",
 } = {}) {
   const locationCache = new Map();
   async function resolvePlace(query) {
@@ -277,7 +278,7 @@ export function createWeatherAssistant({
       throw new WeatherLocationError("country_not_supported");
     }
     const place = await geocodeLocation(parts[0].replace(/^\s*(?:(?:la|el)\s+)?(?:ciudad|localidad)\s+de\s+/i, ""), {
-      fetchImpl, username: geonamesUsername, province: requestedProvince,
+      fetchImpl, username: geonamesUsername, province: requestedProvince, apiUrl: geonamesApiUrl,
     });
     locationCache.set(key, { place, expiresAt: now + 30 * 60 * 1000 });
     if (locationCache.size > 250) locationCache.delete(locationCache.keys().next().value);

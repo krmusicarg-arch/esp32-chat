@@ -48,6 +48,7 @@ function validResult(item) {
 export async function resolveLocationArgentina(name, province = "", {
   fetchImpl = fetch,
   username = "",
+  apiUrl = "",
 } = {}) {
   const query = typeof name === "string" ? name.trim() : "";
   const provinceQuery = typeof province === "string" ? province.trim() : "";
@@ -57,6 +58,9 @@ export async function resolveLocationArgentina(name, province = "", {
   if (!username || typeof username !== "string") {
     throw new WeatherLocationError("geonames_not_configured");
   }
+
+  const configuredUrl = (apiUrl || process.env.GEONAMES_API_URL || process.env.GEONAMES_URL || "").trim();
+  const endpoints = configuredUrl ? [configuredUrl] : GEONAMES_SEARCH_URLS;
 
   const params = new URLSearchParams({
     name: query,
@@ -68,7 +72,7 @@ export async function resolveLocationArgentina(name, province = "", {
   });
   let response = null;
   let lastConnectionCode = "";
-  for (const [index, endpoint] of GEONAMES_SEARCH_URLS.entries()) {
+  for (const [index, endpoint] of endpoints.entries()) {
     try {
       response = await fetchImpl(`${endpoint}?${params}`, { signal: AbortSignal.timeout(8000) });
       if (response.ok || (response.status < 500 && response.status !== 404)) break;
@@ -122,6 +126,6 @@ export async function resolveLocationArgentina(name, province = "", {
 }
 
 // Kept as an alias for existing callers; every lookup is still constrained to AR.
-export async function geocodeLocation(name, { fetchImpl = fetch, username = "", province = "" } = {}) {
-  return resolveLocationArgentina(name, province, { fetchImpl, username });
+export async function geocodeLocation(name, { fetchImpl = fetch, username = "", province = "", apiUrl = "" } = {}) {
+  return resolveLocationArgentina(name, province, { fetchImpl, username, apiUrl });
 }
