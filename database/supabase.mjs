@@ -52,8 +52,22 @@ export function createSupabaseClient({
       throw new Error(`Supabase request failed (${response.status})`);
     }
     if (!response.ok) {
-      console.error("[Supabase] request rejected:", response.status);
-      throw new Error(`Supabase request failed (${response.status})`);
+      const message = typeof payload?.message === "string"
+        ? payload.message.replace(/[\r\n]+/g, " ").slice(0, 240)
+        : "No error message provided";
+      const code = typeof payload?.code === "string" ? payload.code.slice(0, 40) : null;
+      console.error("[Supabase] request rejected:", {
+        resource,
+        status: response.status,
+        code,
+        message,
+      });
+      const error = new Error(`Supabase request failed (${response.status})`);
+      error.name = "SupabaseRequestError";
+      error.status = response.status;
+      error.resource = resource;
+      if (code) error.code = code;
+      throw error;
     }
     return payload;
   }
