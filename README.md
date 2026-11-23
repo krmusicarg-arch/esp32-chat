@@ -1,15 +1,20 @@
-# Backend Gemini + Tavily para Vercel
+# Backend Gemini/Groq + Tavily para Vercel
 
-Este backend mantiene la conversación en Gemini y ofrece una herramienta
-`web_search` para que Gemini decida cuándo consultar Tavily. Conserva el
+Este backend mantiene la conversación con Gemini o Groq, seleccionables por
+variables de entorno, y ofrece una herramienta `web_search` para que el modelo
+decida cuándo consultar Tavily. Groq usa su endpoint compatible con OpenAI y
+Gemini conserva su API nativa. Si el proveedor principal falla por conexión,
+capacidad, límite de solicitudes o incompatibilidad, Robert intenta el otro
+proveedor configurado como respaldo. Conserva el
 contrato anterior del firmware (`question`, `history`, `answer`, `searched_web`,
 `sources`, `status`) y acepta campos opcionales `speaker_id` y
 `conversation_id`. El selector del ESP32 envía `speaker_id`; el ID se valida
 contra los cuatro integrantes activos en cada solicitud.
 
-El identificador existente `gemini-3.5-flash-lite` se conserva. La ficha oficial
-lo muestra como modelo estable y compatible con Function Calling; la búsqueda
-se ejecuta en Tavily, no mediante Google Search Grounding.
+El modelo Groq predeterminado es `openai/gpt-oss-120b`; el modelo Gemini
+predeterminado sigue siendo `gemini-3.5-flash-lite`. Ambos proveedores pueden
+usar la herramienta local `web_search`; la búsqueda se ejecuta en Tavily, no
+mediante Google Search Grounding.
 
 ## Arquitectura
 
@@ -64,7 +69,12 @@ aviso del integrante seleccionado.
 
    | Variable | Requerida | Valor/uso |
    | --- | --- | --- |
-   | `GEMINI_API_KEY` | Sí | Clave de Gemini, solo en Vercel |
+   | `AI_PROVIDER` | No | `groq` o `gemini`. Si se omite, usa Groq cuando existe `GROQ_API_KEY`; si no, usa Gemini |
+   | `AI_FALLBACK_PROVIDER` | No | `gemini`, `groq` o `none`. Si se omite y están configuradas ambas claves, usa el otro proveedor como respaldo |
+   | `GROQ_API_KEY` | Si se usa Groq | Clave de Groq, solo en Vercel |
+   | `GROQ_MODEL` | No | Por defecto `openai/gpt-oss-120b`; también se puede configurar `qwen/qwen3.8-27b` |
+   | `GEMINI_API_KEY` | Si se usa Gemini | Clave de Gemini, solo en Vercel; necesaria también para usarlo como respaldo |
+   | `GEMINI_MODEL` | No | Por defecto `gemini-3.5-flash-lite` |
    | `TAVILY_API_KEY` | Sí | Clave de Tavily, solo en Vercel |
    | `ASSISTANT_DEVICE_TOKEN` | Sí | Token aleatorio, mínimo 24 caracteres |
    | `UPSTASH_REDIS_REST_URL` | Sí | Endpoint REST HTTPS de Redis |
@@ -275,9 +285,12 @@ integrante seleccionado. Tareas, proyectos, recordatorios, preferencias y
 contexto emocional se agregan al prompt solo cuando la pregunta o el seguimiento
 trata de esos temas. No hubo cambios de esquema ni migraciones de Supabase.
 
-Las llamadas de conversación, síntesis web y extracción usan el modelo indicado
-por `GEMINI_MODEL`. La generación conversacional usa temperature 0.75, topP 0.9
-y 1024 tokens; la extracción estructurada mantiene temperature 0 y 1024 tokens.
+Las llamadas de conversación, síntesis web y extracción usan el proveedor
+seleccionado por `AI_PROVIDER` y sus modelos `GROQ_MODEL`/`GEMINI_MODEL`. El
+respaldo se usa ante errores del proveedor principal y mantiene el
+mismo contrato interno. La generación conversacional usa temperature 0.75,
+topP 0.9 y 1024 tokens; la extracción estructurada mantiene temperature 0 y
+1024 tokens.
 El endpoint guarda cada turno en Supabase antes de responder. En Vercel, la
 extracción y persistencia de memorias/tareas se agenda con `waitUntil` para que
 no demore la respuesta; la función tiene `maxDuration = 60`. `waitUntil` mantiene
@@ -292,6 +305,10 @@ reconocimiento de voz no se modificó.
 
 ## Documentación oficial consultada
 
+- [Groq Chat Completions API](https://console.groq.com/docs/api-reference)
+- [Groq uso de herramientas](https://console.groq.com/docs/tool-use/overview)
+- [Groq modelos y capacidades](https://console.groq.com/docs/models)
+- [Groq límites y encabezados de cuota](https://console.groq.com/docs/rate-limits)
 - [Gemini Function Calling](https://ai.google.dev/gemini-api/docs/function-calling)
 - [Modelos Gemini](https://ai.google.dev/gemini-api/docs/models)
 - [Precios y nivel gratuito de Gemini API](https://ai.google.dev/gemini-api/docs/pricing)

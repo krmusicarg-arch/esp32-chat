@@ -97,12 +97,20 @@ function webResults({ includeUsage = true, credits = 1 } = {}) {
 
 function createMockFetch({
   onGemini,
+  onGroq,
   onSearch,
   usage = usagePayload(),
   tavilyError,
 } = {}) {
-  const calls = { gemini: [], usage: 0, search: [] };
+  const calls = { gemini: [], groq: [], usage: 0, search: [] };
   const fetchImpl = async (url, options = {}) => {
+    if (url === "https://api.groq.com/openai/v1/chat/completions") {
+      const body = JSON.parse(options.body);
+      calls.groq.push(body);
+      return onGroq
+        ? onGroq(body, calls, options)
+        : response({ choices: [{ message: { role: "assistant", content: "Respuesta de prueba." } }] });
+    }
     if (url.includes("generativelanguage.googleapis.com")) {
       const body = JSON.parse(options.body);
       calls.gemini.push(body);
@@ -211,6 +219,157 @@ test("general question does not call Tavily", async () => {
     temperature: 0.75,
     topP: 0.9,
   });
+});
+
+test("Groq provider maps chat and web-search tools while preserving the response contract", async () => {
+  const mock = createMockFetch({
+    onGroq: (body, _calls, options) => {
+      assert.equal(body.model, "openai/gpt-oss-120b");
+      assert.equal(options.headers.authorization, "Bearer test-groq-key");
+      assert.equal(body.messages[0].role, "system");
+      assert.match(body.messages[0].content, /español argentino/);
+      assert.equal(body.tools[0].function.name, "web_search");
+      assert.equal(body.tools[0].function.parameters.type, "object");
+      assert.equal(body.max_completion_tokens, 1024);
+      return response({ choices: [{ message: { role: "assistant", content: "Buenas, ¿en qué te ayudo?" } }] });
+    },
+  });
+  const app = createApp({
+    config: {
+      ...BASE_CONFIG,
+      provider: "groq",
+      groqApiKey: "test-groq-key",
+      groqModel: "openai/gpt-oss-120b",
+      fallbackProvider: "gemini",
+    },
+    fetchImpl: mock.fetchImpl,
+  });
+  const result = await app.post({ question: "Hola" });
+
+  assert.equal(result.status, 200);
+  assert.equal(result.json.answer, "Buenas, ¿en qué te ayudo?");
+  assert.equal(mock.calls.groq.length, 1);
+  assert.equal(mock.calls.gemini.length, 0);
+});
+
+test("Groq tool calls are returned with their results and synthesized into the final answer", async () => {
+  const mock = createMockFetch({
+    onGroq: (body) => {
+      const toolResult = body.messages.find((message) => message.role === "tool");
+      if (toolResult) {
+        assert.equal(toolResult.tool_call_id, "call-groq-search");
+        assert.match(toolResult.content, /Dato publicado por la fuente/);
+        return response({ choices: [{ message: { role: "assistant", content: "La fuente confirma el dato." } }] });
+      }
+      return response({
+        choices: [{
+          message: {
+            role: "assistant",
+            content: null,
+            tool_calls: [{
+              id: "call-groq-search",
+              type: "function",
+              function: {
+                name: "web_search",
+                arguments: JSON.stringify({ query: "consulta actual", topic: "general" }),
+              },
+            }],
+          },
+          finish_reason: "tool_calls",
+        }],
+      });
+    },
+  });
+  const app = createApp({
+    config: {
+      ...BASE_CONFIG,
+      provider: "groq",
+      groqApiKey: "test-groq-key",
+      fallbackProvider: "gemini",
+    },
+    fetchImpl: mock.fetchImpl,
+  });
+  const result = await app.post({ question: "¿Qué información actual hay?" });
+
+  assert.equal(result.status, 200);
+  assert.equal(result.json.answer, "La fuente confirma el dato.");
+  assert.equal(result.json.searched_web, true);
+  assert.equal(mock.calls.groq.length, 2);
+  assert.equal(mock.calls.search.length, 1);
+});
+
+test("Groq failures fall back to Gemini without changing the conversation response", async () => {
+  const mock = createMockFetch({
+    onGroq: () => response({ error: { message: "temporary capacity issue" } }, 503),
+    onGemini: () => response({
+      candidates: [{ content: { parts: [{ text: "Respondí con Gemini de respaldo." }] } }],
+    }),
+  });
+  const app = createApp({
+    config: {
+      ...BASE_CONFIG,
+      provider: "groq",
+      groqApiKey: "test-groq-key",
+      fallbackProvider: "gemini",
+    },
+    fetchImpl: mock.fetchImpl,
+  });
+  const result = await app.post({ question: "Hola" });
+
+  assert.equal(result.status, 200);
+  assert.equal(result.json.answer, "Respondí con Gemini de respaldo.");
+  assert.equal(mock.calls.groq.length, 1);
+  assert.equal(mock.calls.gemini.length, 1);
+});
+
+test("Gemini fallback can finish a Groq search tool call", async () => {
+  let groqCalls = 0;
+  const mock = createMockFetch({
+    onGroq: (body) => {
+      groqCalls += 1;
+      if (groqCalls === 1) {
+        return response({
+          choices: [{
+            message: {
+              role: "assistant",
+              content: null,
+              tool_calls: [{
+                id: "call-groq-search",
+                type: "function",
+                function: {
+                  name: "web_search",
+                  arguments: JSON.stringify({ query: "consulta actual", topic: "general" }),
+                },
+              }],
+            },
+            finish_reason: "tool_calls",
+          }],
+        });
+      }
+      assert.ok(body.messages.some((message) => message.role === "tool"));
+      return response({ error: { message: "temporary capacity issue" } }, 503);
+    },
+    onGemini: (body) => {
+      const contents = body.contents.flatMap((item) => item.parts || []);
+      assert.ok(contents.some((part) => part.functionCall?.id === "call-groq-search"));
+      assert.ok(contents.some((part) => part.functionResponse?.id === "call-groq-search"));
+      return response({ candidates: [{ content: { parts: [{ text: "Búsqueda resumida desde Gemini." }] } }] });
+    },
+  });
+  const app = createApp({
+    config: {
+      ...BASE_CONFIG,
+      provider: "groq",
+      groqApiKey: "test-groq-key",
+      fallbackProvider: "gemini",
+    },
+    fetchImpl: mock.fetchImpl,
+  });
+  const result = await app.post({ question: "¿Qué información actual hay?" });
+
+  assert.equal(result.status, 200);
+  assert.equal(result.json.answer, "Búsqueda resumida desde Gemini.");
+  assert.equal(result.json.searched_web, true);
 });
 
 test("greeting uses a conversational Argentine prompt without a fixed word ceiling", async () => {
@@ -572,6 +731,40 @@ test("configuration keeps Gemini model and bounds the free monthly cap", () => {
     ASSISTANT_FAMILY_MEMBER_ID: "a0b1c2d3-e4f5-4a67-8b90-123456789abc",
     TAVILY_MAX_MONTHLY_CREDITS: "1001",
   }), /between 1 and 1000/);
+});
+
+test("configuration selects Groq or Gemini and enables the other configured provider as fallback", () => {
+  const baseEnv = {
+    TAVILY_API_KEY: "test-tavily-key",
+    ASSISTANT_DEVICE_TOKEN: DEVICE_TOKEN,
+    UPSTASH_REDIS_REST_URL: "https://example.upstash.io",
+    UPSTASH_REDIS_REST_TOKEN: "test-redis-token",
+    SUPABASE_URL: "https://example.supabase.co",
+    SUPABASE_SERVICE_ROLE_KEY: "test-supabase-key",
+    ASSISTANT_FAMILY_MEMBER_ID: "a0b1c2d3-e4f5-4a67-8b90-123456789abc",
+  };
+  const groq = configFromEnv({
+    ...baseEnv,
+    AI_PROVIDER: "groq",
+    GROQ_API_KEY: "test-groq-key",
+    GEMINI_API_KEY: "test-gemini-key",
+  });
+  assert.equal(groq.provider, "groq");
+  assert.equal(groq.groqModel, "openai/gpt-oss-120b");
+  assert.equal(groq.fallbackProvider, "gemini");
+
+  const gemini = configFromEnv({
+    ...baseEnv,
+    AI_PROVIDER: "gemini",
+    GROQ_API_KEY: "test-groq-key",
+    GEMINI_API_KEY: "test-gemini-key",
+  });
+  assert.equal(gemini.provider, "gemini");
+  assert.equal(gemini.fallbackProvider, "groq");
+
+  const groqOnly = configFromEnv({ ...baseEnv, GROQ_API_KEY: "test-groq-key" });
+  assert.equal(groqOnly.provider, "groq");
+  assert.equal(groqOnly.fallbackProvider, "none");
 });
 
 test("request validation and device authentication reject invalid callers", async () => {
