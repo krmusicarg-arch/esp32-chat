@@ -48,6 +48,13 @@ function makeDate(year, month, day) {
 }
 
 function extractLocation(text) {
+  // Resolve explicit province + country phrasing before generic preposition
+  // extraction, which otherwise sees the final "de Argentina" as the place.
+  if (/\bargentina\b/i.test(text)) {
+    const province = text.match(/\b(?:mi\s+)?provincia(?:\s+(?:que\s+es|es|de))?\s+([^,.!?]+?)(?=\s*(?:,|\bpais\b|\bargentina\b|$))/i);
+    if (province?.[1]?.trim()) return `${province[1].trim()}, Argentina`;
+  }
+
   const cues = [...text.matchAll(/\b(?:en|para|de)\s+(?:(?:la|el|los|las)\s+)?/gi)];
   for (const cue of cues.reverse()) {
     let value = text.slice(cue.index + cue[0].length)

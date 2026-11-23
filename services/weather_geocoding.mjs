@@ -38,6 +38,10 @@ export async function geocodeLocation(name, { fetchImpl = fetch } = {}) {
   if (query.length < 2 || query.length > 120) throw new WeatherLocationError("location_not_found");
   const parts = query.split(",").map((part) => part.trim()).filter(Boolean);
   const params = new URLSearchParams({ name: query, count: "10", language: "es", format: "json" });
+  if (parts.slice(1).some((part) => normalize(part).split(" ").includes("argentina"))) {
+    // Open-Meteo's countryCode filter prevents same-name locations abroad.
+    params.set("countryCode", "AR");
+  }
   const url = `${GEOCODING_URL}?${params}`;
   let response;
   try {
