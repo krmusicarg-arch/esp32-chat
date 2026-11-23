@@ -69,13 +69,45 @@ function extractLocation(text) {
   return "";
 }
 
+function extractLocations(text) {
+  if (/\bargentina\b/.test(text)) {
+    const province = text.match(/\b(?:mi\s+)?provincia(?:\s+(?:que\s+es|es|de))?\s+([^,.!?]+?)(?=\s*(?:,|\bpais\b|\bargentina\b|$))/);
+    if (province?.[1]?.trim()) return [`${province[1].trim()}, Argentina`];
+  }
+  const comparison = text.match(/\b(?:comparame|compara|comparar)\s+(.+?)(?:[?!.]|$)/i);
+  let value = comparison?.[1] || "";
+  if (!value) {
+    const cues = [...text.matchAll(/\b(?:en|para)\s+(?:(?:la|el|los|las)\s+)?/gi)];
+    const cue = cues.find((candidate) => !/^(?:hoy|manana|pasado manana|esta semana|esta tarde|esta noche|el fin de semana|este fin de semana)\b/.test(text.slice(candidate.index + candidate[0].length)));
+    if (cue) value = text.slice(cue.index + cue[0].length)
+      .replace(/[?¿!¡.]+$/g, "")
+      .replace(/\b(?:ahora|hoy|manana|pasado manana|actualmente|en este momento|esta semana|esta tarde|esta noche|el fin de semana|este fin de semana|los proximos? siete dias|los proximos? 7 dias)\b.*$/gi, "")
+      .replace(/\s+\b(?:en|para|de)\s*$/i, "")
+      .replace(/^(?:(?:la|el)\s+)?(?:capital|ciudad)\s+de\s+/i, "")
+      .trim();
+    else {
+      const fromLocation = text.match(/\b(?:temperatura|clima|tiempo|pronostico|lluvia|viento)\b.*?\bde\s+(?:(?:la|el|los|las)\s+)?(.+?)(?:[?!.]|$)/i);
+      if (fromLocation) value = fromLocation[1].trim();
+    }
+  }
+  if (!value) return [];
+
+  let locations = value.split(/\s+(?:con|y)\s+|\s*;\s*/i).map((item) => item.trim()).filter(Boolean);
+  // Keep commas inside city-country pairs; the assistant expands comma groups
+  // only when each item is verified as a country name.
+  return locations.map((item) => item.replace(/^[,\s]+|[,\s]+$/g, "")).filter(Boolean).slice(0, 5);
+}
+
 export function detectWeatherIntent(question, now = new Date()) {
   const normalized = normalizeWeatherText(question);
   const weatherCue = /\b(clima|climatico|meteorolog|pronostico|temperatura|grados|llover|lluvia|llueve|llovizna|nevar|nieve|humedad|viento)\b/.test(normalized)
     || /\bcomo va a estar\b/.test(normalized)
     || /\bque tiempo\b/.test(normalized)
     || /\bcomo (?:esta|va a estar|estara)(?: el)? tiempo\b/.test(normalized)
-    || /\bhace (?:el )?tiempo\b/.test(normalized);
+    || /\bhace (?:el )?tiempo\b/.test(normalized)
+    || /\b(?:comparame|compara|comparar)\b/.test(normalized)
+    || /\bdonde hace mas calor\b/.test(normalized)
+    || /^\s*[¿¡]?y\s+en\b/.test(normalized);
   if (!normalized || !weatherCue) return null;
 
   const specificDate = extractSpecificDate(normalized, now);
@@ -99,7 +131,8 @@ export function detectWeatherIntent(question, now = new Date()) {
 
   const period = intent;
   const location = extractLocation(normalized);
-  if (location) intent = WEATHER_INTENTS.OTHER_LOCATION;
+  const locations = extractLocations(normalized);
+  if (location || locations.length) intent = WEATHER_INTENTS.OTHER_LOCATION;
   const hourMatch = normalized.match(/\ba las? (\d{1,2})(?::(\d{2}))?\s*(?:hs?|horas?)\b/);
   const timeFrame = /\b(?:esta manana|por la manana|a la manana)\b/.test(normalized) ? "morning"
     : /\b(?:tarde|atardecer)\b/.test(normalized) ? "afternoon"
@@ -110,6 +143,7 @@ export function detectWeatherIntent(question, now = new Date()) {
     intent,
     period,
     location,
+    locations: locations.length ? locations : location ? [location] : [],
     date: date || null,
     dateHasExplicitYear: specificDate?.explicitYear || false,
     dayOffset: date ? null : offset,

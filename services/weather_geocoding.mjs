@@ -33,15 +33,32 @@ function validCandidate(item) {
     && Number.isFinite(item.longitude) && item.longitude >= -180 && item.longitude <= 180;
 }
 
+export async function geocodeCountryCode(name, { fetchImpl = fetch } = {}) {
+  const query = typeof name === "string" ? name.trim() : "";
+  if (query.length < 2 || query.length > 120) return "";
+  const params = new URLSearchParams({ name: query, count: "100", language: "es", format: "json" });
+  let response;
+  try {
+    response = await fetchImpl(`${GEOCODING_URL}?${params}`, { signal: AbortSignal.timeout(4000) });
+    if (!response.ok) return "";
+    const payload = await response.json();
+    const expected = normalize(query);
+    const country = (Array.isArray(payload.results) ? payload.results : []).find((item) =>
+      validCandidate(item) && /^PCLI$/i.test(item.feature_code || "")
+      && normalize(item.name) === expected && /^[A-Z]{2}$/i.test(item.country_code || ""));
+    return country?.country_code?.toUpperCase() || "";
+  } catch {
+    return "";
+  }
+}
+
 export async function geocodeLocation(name, { fetchImpl = fetch } = {}) {
   const query = typeof name === "string" ? name.trim() : "";
   if (query.length < 2 || query.length > 120) throw new WeatherLocationError("location_not_found");
   const parts = query.split(",").map((part) => part.trim()).filter(Boolean);
   const params = new URLSearchParams({ name: query, count: "10", language: "es", format: "json" });
-  if (parts.slice(1).some((part) => normalize(part).split(" ").includes("argentina"))) {
-    // Open-Meteo's countryCode filter prevents same-name locations abroad.
-    params.set("countryCode", "AR");
-  }
+  const countryQualifier = parts[1];
+  if (countryQualifier && /^[a-z]{2}$/i.test(countryQualifier)) params.set("countryCode", countryQualifier.toUpperCase());
   const url = `${GEOCODING_URL}?${params}`;
   let response;
   try {
@@ -60,14 +77,9 @@ export async function geocodeLocation(name, { fetchImpl = fetch } = {}) {
   if (!results.length) throw new WeatherLocationError("location_not_found");
 
   let candidates = results;
-  if (parts.length > 1) {
-    const qualifier = normalize(parts.slice(1).join(" "));
-    const filtered = candidates.filter((item) => {
-      const areas = normalize([item.country, item.country_code, item.admin1, item.admin2, item.admin3].filter(Boolean).join(" "));
-      return qualifier.split(" ").every((token) => areas.split(" ").includes(token));
-    });
-    if (filtered.length) candidates = filtered;
-  }
+  // Open-Meteo applies the qualifier in the query itself. Do not re-filter
+  // against localized display names here: "United States" may be returned as
+  // "Estados Unidos" when language=es.
 
   // Prefer populated localities over administrative regions with the same name.
   const settlements = candidates.filter((item) => /^(?:PPL|PPLC|PPLA|PPLA2|PPLA3|PPLX)/i.test(item.feature_code || ""));
