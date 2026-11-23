@@ -290,7 +290,9 @@ seleccionado por `AI_PROVIDER` y sus modelos `GROQ_MODEL`/`GEMINI_MODEL`. El
 respaldo se usa ante errores del proveedor principal y mantiene el
 mismo contrato interno. La generación conversacional usa temperature 0.75,
 topP 0.9 y 1024 tokens; la extracción estructurada mantiene temperature 0 y
-1024 tokens.
+1024 tokens. Con Groq, la extracción familiar usa JSON Schema estricto y
+reduce el esfuerzo de razonamiento de GPT-OSS; si el proveedor principal falla,
+Gemini tiene hasta 20 segundos para completar esa tarea en segundo plano.
 El endpoint guarda cada turno en Supabase antes de responder. En Vercel, la
 extracción y persistencia de memorias/tareas se agenda con `waitUntil` para que
 no demore la respuesta; la función tiene `maxDuration = 60`. `waitUntil` mantiene
@@ -307,6 +309,8 @@ reconocimiento de voz no se modificó.
 
 - [Groq Chat Completions API](https://console.groq.com/docs/api-reference)
 - [Groq uso de herramientas](https://console.groq.com/docs/tool-use/overview)
+- [Groq salidas estructuradas](https://console.groq.com/docs/structured-outputs)
+- [Groq razonamiento y parámetros](https://console.groq.com/docs/reasoning)
 - [Groq modelos y capacidades](https://console.groq.com/docs/models)
 - [Groq límites y encabezados de cuota](https://console.groq.com/docs/rate-limits)
 - [Gemini Function Calling](https://ai.google.dev/gemini-api/docs/function-calling)
