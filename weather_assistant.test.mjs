@@ -83,7 +83,8 @@ function openMeteoFetch({ locations = () => [place("Buenos Aires")], failForecas
   const calls = [];
   const fetchImpl = async (url) => {
     calls.push(String(url));
-    if (String(url).startsWith("https://api.geonames.org/searchJSON")) {
+    if (String(url).startsWith("https://secure.geonames.org/searchJSON")
+        || String(url).startsWith("https://api.geonames.org/searchJSON")) {
       const params = new URL(url).searchParams;
       const results = locations(params.get("name"));
       return new Response(JSON.stringify({ totalResultsCount: results.length, geonames: results.slice(0, 1) }));
@@ -134,13 +135,34 @@ test("GeoNames searches only Argentina with the required query contract", async 
   const { fetchImpl, calls } = openMeteoFetch({ locations: () => [place("Saldán", "Córdoba")] });
   await geocodeLocation("Saldán", { fetchImpl, username: "test-user", province: "Córdoba" });
   const request = new URL(calls[0]);
-  assert.equal(request.origin, "https://api.geonames.org");
+  assert.equal(request.origin, "https://secure.geonames.org");
   assert.equal(request.pathname, "/searchJSON");
   assert.equal(request.searchParams.get("name"), "Saldán");
   assert.equal(request.searchParams.get("country"), "AR");
   assert.equal(request.searchParams.get("lang"), "es");
   assert.equal(request.searchParams.get("maxRows"), "1");
   assert.equal(request.searchParams.get("username"), "test-user");
+});
+
+test("retries GeoNames through its alternate HTTPS endpoint after a connection error", async () => {
+  const calls = [];
+  const fetchImpl = async (url) => {
+    calls.push(String(url));
+    if (String(url).startsWith("https://secure.geonames.org/")) {
+      throw new TypeError("fetch failed", { cause: Object.assign(new Error("connection reset"), { code: "ECONNRESET" }) });
+    }
+    if (String(url).startsWith("https://api.geonames.org/")) {
+      return new Response(JSON.stringify({ totalResultsCount: 1, geonames: [place("Saldán", "Córdoba")] }));
+    }
+    throw new Error("Unexpected host");
+  };
+  const result = await geocodeLocation("Saldán", { fetchImpl, username: "test-user", province: "Córdoba" });
+  assert.equal(result.name, "Saldán");
+  assert.equal(calls.length, 2);
+  for (const url of calls) {
+    assert.equal(new URL(url).searchParams.get("country"), "AR");
+    assert.equal(new URL(url).searchParams.get("username"), "test-user");
+  }
 });
 
 test("rejects a province contradiction and never searches another country", async () => {

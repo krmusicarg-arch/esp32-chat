@@ -1,4 +1,7 @@
-const GEONAMES_SEARCH_URL = "https://api.geonames.org/searchJSON";
+const GEONAMES_SEARCH_URLS = [
+  "https://secure.geonames.org/searchJSON",
+  "https://api.geonames.org/searchJSON",
+];
 
 export class WeatherLocationError extends Error {
   constructor(code, candidates = []) {
@@ -63,11 +66,23 @@ export async function resolveLocationArgentina(name, province = "", {
     username,
     type: "json",
   });
-  let response;
-  try {
-    response = await fetchImpl(`${GEONAMES_SEARCH_URL}?${params}`, { signal: AbortSignal.timeout(8000) });
-  } catch (error) {
-    console.error(`[Weather] GeoNames connection failed (${error?.name || "Error"})`);
+  let response = null;
+  let lastConnectionCode = "";
+  for (const [index, endpoint] of GEONAMES_SEARCH_URLS.entries()) {
+    try {
+      response = await fetchImpl(`${endpoint}?${params}`, { signal: AbortSignal.timeout(8000) });
+      if (response.ok || (response.status < 500 && response.status !== 404)) break;
+      console.warn(`[Weather] GeoNames HTTP error on endpoint ${index + 1} (${response.status}); trying fallback`);
+    } catch (error) {
+      const causeCode = error?.cause?.code;
+      lastConnectionCode = typeof causeCode === "string" && /^[A-Z0-9_]+$/.test(causeCode)
+        ? causeCode : error?.name || "Error";
+      console.warn(`[Weather] GeoNames connection failed on endpoint ${index + 1} (${lastConnectionCode}); trying fallback`);
+      response = null;
+    }
+  }
+  if (!response) {
+    console.error(`[Weather] GeoNames endpoints unavailable (${lastConnectionCode || "connection error"})`);
     throw new WeatherLocationError("geocoding_unavailable");
   }
   if (!response.ok) {
