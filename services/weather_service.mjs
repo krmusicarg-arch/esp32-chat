@@ -100,14 +100,19 @@ export function createWeatherService({ fetchImpl = fetch, clock = () => Date.now
       let response;
       try {
         response = await fetchImpl(`${FORECAST_URL}?${params}`, { signal: AbortSignal.timeout(10000) });
-      } catch {
+      } catch (error) {
+        console.error(`[Weather] Open-Meteo connection failed (${error?.name || "Error"})`);
         throw new WeatherApiError("weather_unavailable");
       }
-      if (!response.ok) throw new WeatherApiError("weather_unavailable");
+      if (!response.ok) {
+        console.error(`[Weather] Open-Meteo HTTP error (${response.status})`);
+        throw new WeatherApiError("weather_unavailable");
+      }
       let payload;
       try {
         payload = await response.json();
       } catch {
+        console.error("[Weather] Open-Meteo returned invalid JSON");
         throw new WeatherApiError("invalid_weather_response");
       }
       const fetchedAt = Number(clock());

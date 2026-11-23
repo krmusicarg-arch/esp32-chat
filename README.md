@@ -93,6 +93,7 @@ aviso del integrante seleccionado.
    | `ASSISTANT_MOBILE_SESSION_SECRET` | Para móvil | Secreto de firma aleatorio de al menos 32 bytes; solo en Vercel |
    | `ASSISTANT_MOBILE_ORIGINS` | Para móvil | Orígenes HTTPS de la PWA separados por comas, sin rutas |
    | `WEATHER_DEFAULT_LOCATION` | No | Localidad para fallback cuando la geolocalización no está disponible; por defecto `Buenos Aires, Argentina` |
+   | `GEONAMES_USERNAME` | Para clima | Usuario GeoNames configurado solo en el backend; se usa para resolver localidades de Argentina |
 
 5. Despliega y copia el dominio HTTPS asignado por Vercel.
 6. En el sketch, reemplaza el host de ejemplo de

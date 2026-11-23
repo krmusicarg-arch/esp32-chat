@@ -1,6 +1,22 @@
 import { detectWeatherIntent, WEATHER_INTENTS } from "./weather_intent.mjs";
-import { geocodeLocation, geocodeCountryCode, WeatherLocationError } from "./weather_geocoding.mjs";
+import { geocodeLocation, WeatherLocationError } from "./weather_geocoding.mjs";
 import { createWeatherService, WeatherApiError } from "./weather_service.mjs";
+
+const ARGENTINE_PROVINCES = new Set([
+  "Buenos Aires", "Catamarca", "Chaco", "Chubut", "Córdoba", "Corrientes", "Entre Ríos", "Formosa",
+  "Jujuy", "La Pampa", "La Rioja", "Mendoza", "Misiones", "Neuquén", "Río Negro", "Salta",
+  "San Juan", "San Luis", "Santa Cruz", "Santa Fe", "Santiago del Estero", "Tierra del Fuego", "Tucumán",
+].map((province) => province.toLocaleLowerCase("es-AR").normalize("NFD").replace(/\p{Diacritic}/gu, "")));
+
+function normalizeProvince(value) {
+  const normalized = String(value || "").toLocaleLowerCase("es-AR").normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "").replace(/^provincia\s+(?:de\s+)?/i, "").trim();
+  return ARGENTINE_PROVINCES.has(normalized) ? normalized : "";
+}
+
+function normalizeText(value) {
+  return String(value || "").toLocaleLowerCase("es-AR").normalize("NFD").replace(/\p{Diacritic}/gu, "").trim();
+}
 
 const WEATHER_CODES = new Map([
   [0, ["Despejado", "☀️"]], [1, ["Mayormente despejado", "🌤️"]],
@@ -18,38 +34,6 @@ const WEATHER_CODES = new Map([
   [86, ["Chaparrones fuertes de nieve", "❄️"]], [95, ["Tormenta", "⛈️"]],
   [96, ["Tormenta con granizo", "⛈️"]], [99, ["Tormenta fuerte con granizo", "⛈️"]],
 ]);
-
-const COUNTRY_CAPITALS = new Map([
-  ["argentina", ["Buenos Aires", "Argentina"]], ["brasil", ["Brasília", "Brazil"]], ["brazil", ["Brasília", "Brazil"]],
-  ["francia", ["Paris", "France"]], ["france", ["Paris", "France"]], ["espana", ["Madrid", "Spain"]], ["spain", ["Madrid", "Spain"]],
-  ["estados unidos", ["Washington", "United States"]], ["eeuu", ["Washington", "United States"]], ["united states", ["Washington", "United States"]],
-  ["japon", ["Tokyo", "Japan"]], ["japan", ["Tokyo", "Japan"]], ["chile", ["Santiago", "Chile"]], ["uruguay", ["Montevideo", "Uruguay"]],
-  ["paraguay", ["Asunción", "Paraguay"]], ["bolivia", ["Sucre", "Bolivia"]], ["peru", ["Lima", "Peru"]],
-  ["colombia", ["Bogotá", "Colombia"]], ["venezuela", ["Caracas", "Venezuela"]], ["ecuador", ["Quito", "Ecuador"]],
-  ["mexico", ["Mexico City", "Mexico"]], ["canada", ["Ottawa", "Canada"]], ["alemania", ["Berlin", "Germany"]], ["germany", ["Berlin", "Germany"]],
-  ["italia", ["Rome", "Italy"]], ["italy", ["Rome", "Italy"]], ["portugal", ["Lisbon", "Portugal"]], ["reino unido", ["London", "United Kingdom"]],
-  ["united kingdom", ["London", "United Kingdom"]], ["china", ["Beijing", "China"]], ["india", ["New Delhi", "India"]],
-  ["rusia", ["Moscow", "Russia"]], ["russia", ["Moscow", "Russia"]], ["australia", ["Canberra", "Australia"]],
-  ["nueva zelanda", ["Wellington", "New Zealand"]], ["south korea", ["Seoul", "South Korea"]], ["corea del sur", ["Seoul", "South Korea"]],
-  ["austria", ["Vienna", "Austria"]], ["belgica", ["Brussels", "Belgium"]], ["belgium", ["Brussels", "Belgium"]],
-  ["paises bajos", ["Amsterdam", "Netherlands"]], ["netherlands", ["Amsterdam", "Netherlands"]], ["suiza", ["Bern", "Switzerland"]],
-  ["switzerland", ["Bern", "Switzerland"]], ["suecia", ["Stockholm", "Sweden"]], ["sweden", ["Stockholm", "Sweden"]],
-  ["noruega", ["Oslo", "Norway"]], ["norway", ["Oslo", "Norway"]], ["dinamarca", ["Copenhagen", "Denmark"]], ["denmark", ["Copenhagen", "Denmark"]],
-  ["grecia", ["Athens", "Greece"]], ["greece", ["Athens", "Greece"]], ["irlanda", ["Dublin", "Ireland"]], ["ireland", ["Dublin", "Ireland"]],
-  ["polonia", ["Warsaw", "Poland"]], ["poland", ["Warsaw", "Poland"]], ["turquia", ["Ankara", "Turkey"]], ["turkey", ["Ankara", "Turkey"]],
-  ["egipto", ["Cairo", "Egypt"]], ["egypt", ["Cairo", "Egypt"]], ["marruecos", ["Rabat", "Morocco"]], ["morocco", ["Rabat", "Morocco"]],
-  ["sudafrica", ["Pretoria", "South Africa"]], ["south africa", ["Pretoria", "South Africa"]], ["nigeria", ["Abuja", "Nigeria"]],
-  ["kenia", ["Nairobi", "Kenya"]], ["kenya", ["Nairobi", "Kenya"]], ["tailandia", ["Bangkok", "Thailand"]], ["thailand", ["Bangkok", "Thailand"]],
-  ["indonesia", ["Jakarta", "Indonesia"]], ["vietnam", ["Hanoi", "Vietnam"]], ["filipinas", ["Manila", "Philippines"]], ["philippines", ["Manila", "Philippines"]],
-  ["pakistan", ["Islamabad", "Pakistan"]], ["bangladesh", ["Dhaka", "Bangladesh"]], ["singapur", ["Singapore", "Singapore"]], ["singapore", ["Singapore", "Singapore"]],
-  ["ucrania", ["Kyiv", "Ukraine"]], ["ukraine", ["Kyiv", "Ukraine"]], ["taiwan", ["Taipei", "Taiwan"]], ["corea del norte", ["Pyongyang", "North Korea"]],
-]);
-
-function normalizedCountry(value) {
-  return String(value || "").toLocaleLowerCase("es-AR").normalize("NFD").replace(/\p{Diacritic}/gu, "").trim();
-}
-
-const GEONAMES_COUNTRY_INFO_URL = "https://download.geonames.org/export/dump/countryInfo.txt";
 
 function condition(code) {
   const numericCode = Number(code);
@@ -70,7 +54,17 @@ function dateLabel(date) {
 
 function formatLocation(place) {
   if (place.source === "device") return { name: "Tu ubicación actual", admin1: "", country: "" };
-  return { name: place.name, admin1: place.admin1 || "", country: place.country || "" };
+  return {
+    name: place.name,
+    city: place.name,
+    admin1: place.admin1 || "",
+    province: place.admin1 || "",
+    country: place.country || "",
+    countryCode: place.countryCode || "AR",
+    latitude: place.latitude,
+    longitude: place.longitude,
+    geonameId: place.geonameId || place.id,
+  };
 }
 
 function locationLabel(location) {
@@ -247,14 +241,16 @@ function clarifyLocation(question, candidates) {
   const choices = candidates.map((candidate) => locationLabel(candidate));
   return {
     status: "location_ambiguous",
-    answer: `Encontré varias localidades para esa búsqueda: ${choices.join("; ")}. ¿Cuál querés consultar?`,
+    answer: choices.length === 1
+      ? `Encontré varias coincidencias. La primera es ${choices[0]}. ¿De qué provincia es la localidad que querés consultar?`
+      : `Encontré varias localidades para esa búsqueda: ${choices.join("; ")}. ¿Cuál querés consultar?`,
     weather: {
       type: "weather_response",
       intent: "WEATHER_OTHER_LOCATION",
       needsClarification: true,
       query: question,
       candidates: candidates.map(({ name, admin1, country }) => ({ name, admin1, country })),
-      source: "Open-Meteo.com",
+      source: "GeoNames",
     },
   };
 }
@@ -264,78 +260,35 @@ export function createWeatherAssistant({
   clock = () => new Date(),
   weatherService = createWeatherService({ fetchImpl, clock: () => clock().getTime() }),
   defaultLocation = "Buenos Aires, Argentina",
+  geonamesUsername = "",
 } = {}) {
   const locationCache = new Map();
-  let countryInfoPromise;
-  async function loadCountryInfo() {
-    if (!countryInfoPromise) {
-      countryInfoPromise = (async () => {
-        const response = await fetchImpl(GEONAMES_COUNTRY_INFO_URL, { signal: AbortSignal.timeout(5000) });
-        if (!response.ok) throw new Error("country_info_unavailable");
-        const text = await response.text();
-        const countries = new Map();
-        for (const line of text.split(/\r?\n/)) {
-          if (!line || line.startsWith("#")) continue;
-          const [code, , , , country, capital] = line.split("\t");
-          if (/^[A-Z]{2}$/.test(code || "") && country && capital && capital !== "") {
-            countries.set(code, { country, capital });
-          }
-        }
-        return countries;
-      })().catch((error) => { countryInfoPromise = null; throw error; });
-    }
-    return countryInfoPromise;
-  }
-  function countryCapital(query) {
-    const known = COUNTRY_CAPITALS.get(normalizedCountry(query));
-    return known ? { capital: known[0], country: known[1] } : null;
-  }
-  async function resolveCountryCapital(query) {
-    const known = countryCapital(query);
-    if (known) return known;
-    const code = await geocodeCountryCode(query, { fetchImpl });
-    if (!code) return null;
-    try {
-      return (await loadCountryInfo()).get(code) || null;
-    } catch {
-      return null;
-    }
-  }
   async function resolvePlace(query) {
     const key = query.toLocaleLowerCase("es-AR").normalize("NFD").replace(/\p{Diacritic}/gu, "").trim();
     const now = clock().getTime();
     const cached = locationCache.get(key);
     if (cached && cached.expiresAt > now) return { ...cached.place };
     if (cached) locationCache.delete(key);
-    const country = query.includes(",") ? null : await resolveCountryCapital(query);
-    const placeQuery = country ? `${country.capital}, ${country.country}` : query;
-    const place = await geocodeLocation(placeQuery, { fetchImpl });
-    if (!country && /^PCLI$/i.test(place.featureCode || "")) {
-      throw new WeatherLocationError("country_capital_not_found");
+    const parts = query.split(",").map((part) => part.trim()).filter(Boolean);
+    const qualifiers = parts.slice(1).filter(Boolean);
+    const requestedProvince = qualifiers.find((part) => normalizeProvince(part)) || "";
+    const providedCountry = qualifiers.find((part) => !normalizeProvince(part));
+    if (providedCountry && normalizeText(providedCountry) !== "argentina") {
+      throw new WeatherLocationError("country_not_supported");
     }
+    const place = await geocodeLocation(parts[0].replace(/^\s*(?:(?:la|el)\s+)?(?:ciudad|localidad)\s+de\s+/i, ""), {
+      fetchImpl, username: geonamesUsername, province: requestedProvince,
+    });
     locationCache.set(key, { place, expiresAt: now + 30 * 60 * 1000 });
     if (locationCache.size > 250) locationCache.delete(locationCache.keys().next().value);
     return { ...place };
   }
 
-  async function expandCountryList(locations) {
-    const expanded = [];
-    for (const location of locations) {
-      const parts = location.split(",").map((part) => part.trim()).filter(Boolean);
-      if (parts.length === 2 && await resolveCountryCapital(parts[0]) && await resolveCountryCapital(parts[1])) {
-        expanded.push(...parts);
-      } else {
-        expanded.push(location);
-      }
-    }
-    return expanded;
-  }
-
-  return async function answerWeatherQuestion({ question, currentLocation = null }) {
+  return async function answerWeatherQuestion({ question }) {
     const intent = detectWeatherIntent(question, clock());
     if (!intent) return null;
     try {
-      const requestedLocations = await expandCountryList(intent.locations || []);
+      const requestedLocations = intent.locations || [];
       if (!requestedLocations.length && /\bdonde hace mas calor\b/.test(question.toLocaleLowerCase("es-AR").normalize("NFD").replace(/\p{Diacritic}/gu, ""))) {
         return { status: "needs_clarification", answer: "¿Entre qué ciudades o países querés comparar la temperatura?", weather: null };
       }
@@ -362,21 +315,15 @@ export function createWeatherAssistant({
             locations: available.map(({ result }) => result.weather), source: "Open-Meteo.com" } : null,
         };
       }
+      const asksCurrentLocation = /\b(?:mi ubicacion(?: actual)?|donde estoy|donde me encuentro|aqui|aca)\b/.test(
+        question.toLocaleLowerCase("es-AR").normalize("NFD").replace(/\p{Diacritic}/gu, ""),
+      );
       let place;
       const requestedLocation = requestedLocations[0] || intent.location;
       if (requestedLocation) {
         place = await resolvePlace(requestedLocation);
-      } else if (currentLocation && Number.isFinite(currentLocation.latitude)
-          && Number.isFinite(currentLocation.longitude)) {
-        place = {
-          name: "Tu ubicación actual",
-          admin1: "",
-          country: "",
-          latitude: currentLocation.latitude,
-          longitude: currentLocation.longitude,
-          timezone: "auto",
-          source: "device",
-        };
+      } else if (asksCurrentLocation) {
+        return { status: "location_not_found", answer: "Para consultar tu ubicación actual necesito identificar primero una localidad de Argentina. Decime la ciudad y la provincia.", weather: { type: "weather_response", intent: intent.intent, needsClarification: true, source: "GeoNames" } };
       } else {
         place = await resolvePlace(defaultLocation);
         place.source = "default";
@@ -419,15 +366,28 @@ export function createWeatherAssistant({
     } catch (error) {
       if (error instanceof WeatherLocationError) {
         if (error.code === "location_ambiguous") return clarifyLocation(question, error.candidates);
-        if (error.code === "country_capital_not_found") {
-          return { status: "location_not_found", answer: "No pude identificar la capital de ese país. Decime qué ciudad querés consultar.", weather: { type: "weather_response", intent: intent.intent, needsClarification: true, source: "Open-Meteo.com" } };
+        if (error.code === "province_mismatch") {
+          const actual = error.candidates[0]?.admin1;
+          return { status: "location_ambiguous", answer: `GeoNames ubicó esa localidad en ${actual || "otra provincia"}. Decime el nombre de la ciudad y la provincia que querés consultar.`, weather: { type: "weather_response", intent: intent.intent, needsClarification: true, candidates: error.candidates, source: "GeoNames" } };
+        }
+        if (error.code === "country_not_supported") {
+          return { status: "location_not_found", answer: "Por ahora solo puedo consultar localidades de Argentina.", weather: { type: "weather_response", intent: intent.intent, needsClarification: true, source: "GeoNames" } };
+        }
+        if (error.code === "geonames_auth_failed") {
+          return { status: "weather_unavailable", answer: "No pude consultar GeoNames. Revisá la configuración del servicio meteorológico.", weather: null };
+        }
+        if (error.code === "geonames_not_configured") {
+          return { status: "weather_unavailable", answer: "Falta configurar GeoNames en el backend para consultar el clima.", weather: null };
         }
         if (error.code === "location_not_found") {
           return {
             status: "location_not_found",
             answer: `No encontré esa localidad. Decime el nombre junto con su provincia o país.`,
-            weather: { type: "weather_response", intent: intent.intent, needsClarification: true, source: "Open-Meteo.com" },
+            weather: { type: "weather_response", intent: intent.intent, needsClarification: true, source: "GeoNames" },
           };
+        }
+        if (error.code === "geocoding_unavailable") {
+          return { status: "weather_unavailable", answer: "No pude identificar la localidad en GeoNames en este momento. Probá de nuevo más tarde.", weather: null };
         }
       }
       if (error instanceof WeatherApiError || error instanceof WeatherLocationError) {

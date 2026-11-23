@@ -95,7 +95,9 @@ function extractLocations(text) {
   let locations = value.split(/\s+(?:con|y)\s+|\s*;\s*/i).map((item) => item.trim()).filter(Boolean);
   // Keep commas inside city-country pairs; the assistant expands comma groups
   // only when each item is verified as a country name.
-  return locations.map((item) => item.replace(/^[,\s]+|[,\s]+$/g, "")).filter(Boolean).slice(0, 5);
+  return locations.map((item) => item.replace(/^[,\s]+|[,\s]+$/g, ""))
+    .filter((item) => item && !/^(?:mi ubicacion(?: actual)?|donde estoy|donde me encuentro|aqui|aca)$/i.test(item))
+    .slice(0, 5);
 }
 
 export function detectWeatherIntent(question, now = new Date()) {

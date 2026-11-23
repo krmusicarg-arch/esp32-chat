@@ -15,6 +15,7 @@ const CONFIG = {
   deviceToken: "test-weather-device-token-012345",
   mobileOrigins: ["https://robert.example"],
   weatherDefaultLocation: "Buenos Aires, Argentina",
+  weatherGeoNamesUsername: "test-geonames-user",
 };
 
 function addDays(date, offset) {
@@ -63,15 +64,17 @@ function forecastPayload() {
 
 function place(name, admin1 = "Buenos Aires", country = "Argentina", id = 1) {
   return {
-    id,
+    geonameId: id,
     name,
-    admin1,
-    country,
+    adminName1: admin1,
+    countryName: country,
     country_code: "AR",
-    latitude: -34.6 + id / 10000,
-    longitude: -58.4 + id / 10000,
-    timezone: "America/Argentina/Buenos_Aires",
-    feature_code: "PPLA",
+    countryCode: "AR",
+    lat: String(-34.6 + id / 10000),
+    lng: String(-58.4 + id / 10000),
+    timezone: { timeZoneId: "America/Argentina/Buenos_Aires" },
+    fcl: "P",
+    fcode: "PPLA",
     population: 100000,
   };
 }
@@ -80,8 +83,10 @@ function openMeteoFetch({ locations = () => [place("Buenos Aires")], failForecas
   const calls = [];
   const fetchImpl = async (url) => {
     calls.push(String(url));
-    if (String(url).startsWith("https://geocoding-api.open-meteo.com/")) {
-      return new Response(JSON.stringify({ results: locations(new URL(url).searchParams.get("name")) }));
+    if (String(url).startsWith("https://api.geonames.org/searchJSON")) {
+      const params = new URL(url).searchParams;
+      const results = locations(params.get("name"));
+      return new Response(JSON.stringify({ totalResultsCount: results.length, geonames: results.slice(0, 1) }));
     }
     if (String(url).startsWith("https://api.open-meteo.com/")) {
       if (failForecast) return new Response("unavailable", { status: 503 });
@@ -117,22 +122,75 @@ test("geocoding resolves Buenos Aires and Villa Carlos Paz with location metadat
       ? place("Villa Carlos Paz", "Córdoba", "Argentina", 2)
       : place("Buenos Aires")],
   });
-  const buenosAires = await geocodeLocation("Buenos Aires, Argentina", { fetchImpl });
-  const villaCarlosPaz = await geocodeLocation("Villa Carlos Paz", { fetchImpl });
+  const buenosAires = await geocodeLocation("Buenos Aires", { fetchImpl, username: "test-user", province: "Buenos Aires" });
+  const villaCarlosPaz = await geocodeLocation("Villa Carlos Paz", { fetchImpl, username: "test-user" });
   assert.equal(buenosAires.name, "Buenos Aires");
   assert.equal(buenosAires.country, "Argentina");
   assert.equal(villaCarlosPaz.name, "Villa Carlos Paz");
   assert.equal(villaCarlosPaz.admin1, "Córdoba");
 });
 
+test("GeoNames searches only Argentina with the required query contract", async () => {
+  const { fetchImpl, calls } = openMeteoFetch({ locations: () => [place("Saldán", "Córdoba")] });
+  await geocodeLocation("Saldán", { fetchImpl, username: "test-user", province: "Córdoba" });
+  const request = new URL(calls[0]);
+  assert.equal(request.origin, "https://api.geonames.org");
+  assert.equal(request.pathname, "/searchJSON");
+  assert.equal(request.searchParams.get("name"), "Saldán");
+  assert.equal(request.searchParams.get("country"), "AR");
+  assert.equal(request.searchParams.get("lang"), "es");
+  assert.equal(request.searchParams.get("maxRows"), "1");
+  assert.equal(request.searchParams.get("username"), "test-user");
+});
+
+test("rejects a province contradiction and never searches another country", async () => {
+  const { fetchImpl, calls } = openMeteoFetch({ locations: () => [place("Saldán", "Córdoba")] });
+  await assert.rejects(() => geocodeLocation("Saldán", { fetchImpl, username: "test-user", province: "Mendoza" }), (error) => {
+    assert.equal(error.code, "province_mismatch");
+    return true;
+  });
+  const assistant = createWeatherAssistant({ fetchImpl, clock: () => TEST_DATE, geonamesUsername: "test-user" });
+  const outsideArgentina = await assistant({ question: "¿Qué temperatura hace en Río de Janeiro, Brasil?" });
+  assert.equal(outsideArgentina.status, "location_not_found");
+  assert.equal(calls.filter((url) => url.includes("searchJSON")).length, 1);
+  assert.equal(calls.filter((url) => url.includes("v1/forecast")).length, 0);
+});
+
+test("resolves the eight requested Argentina localities and forwards GeoNames coordinates", async () => {
+  const cities = [
+    ["Saldán", "Córdoba"], ["Villa Allende", "Córdoba"], ["Córdoba", "Córdoba"],
+    ["Buenos Aires", "Buenos Aires"], ["Rosario", "Santa Fe"], ["Mendoza", "Mendoza"],
+    ["Río Cuarto", "Córdoba"], ["Mar del Plata", "Buenos Aires"],
+  ];
+  const fixtures = cities.map(([city, province], index) => place(city, province, "Argentina", index + 101));
+  const { fetchImpl, calls } = openMeteoFetch({
+    locations: (query) => fixtures.filter((item) => item.name.normalize("NFD").replace(/\p{Diacritic}/gu, "").toLowerCase() === query.normalize("NFD").replace(/\p{Diacritic}/gu, "").toLowerCase()),
+  });
+  const assistant = createWeatherAssistant({ fetchImpl, clock: () => TEST_DATE, geonamesUsername: "test-user" });
+
+  for (const [index, [city, province]] of cities.entries()) {
+    const result = await assistant({ question: `¿Qué temperatura hace en ${city}, ${province}, Argentina?` });
+    assert.equal(result.status, "ok", city);
+    assert.equal(result.weather.location.name, fixtures[index].name);
+    assert.equal(result.weather.location.province, province);
+    assert.equal(result.weather.location.countryCode, "AR");
+    const geonames = new URL(calls.filter((url) => url.includes("searchJSON"))[index]);
+    const forecast = new URL(calls.filter((url) => url.includes("v1/forecast"))[index]);
+    assert.equal(geonames.searchParams.get("country"), "AR");
+    assert.equal(geonames.searchParams.get("name"), city.normalize("NFD").replace(/\p{Diacritic}/gu, "").toLowerCase());
+    assert.equal(Number(forecast.searchParams.get("latitude")), Number(fixtures[index].lat));
+    assert.equal(Number(forecast.searchParams.get("longitude")), Number(fixtures[index].lng));
+  }
+});
+
 test("asks for clarification when a place name has multiple exact populated matches", async () => {
   const { fetchImpl } = openMeteoFetch({
-    locations: () => [place("Springfield", "Illinois", "United States", 3), place("Springfield", "Massachusetts", "United States", 4)],
+    locations: () => [place("San Martín", "Córdoba", "Argentina", 3), place("San Martín", "Santa Fe", "Argentina", 4)],
   });
-  await assert.rejects(() => geocodeLocation("Springfield", { fetchImpl }), (error) => {
+  await assert.rejects(() => geocodeLocation("San Martín", { fetchImpl, username: "test-user" }), (error) => {
     assert.ok(error instanceof WeatherLocationError);
     assert.equal(error.code, "location_ambiguous");
-    assert.equal(error.candidates.length, 2);
+    assert.equal(error.candidates.length, 1);
     return true;
   });
 });
@@ -164,24 +222,29 @@ test("weather requests use the requested fields, units, timezone and seven-day r
   assert.equal(calls.length, 2);
 });
 
-test("returns current conditions from authorized coordinates without geocoding", async () => {
+test("ignores ambient browser coordinates and resolves the configured Argentina locality", async () => {
   const { fetchImpl, calls } = openMeteoFetch();
-  const answerWeather = createWeatherAssistant({ fetchImpl, clock: () => TEST_DATE });
+  const answerWeather = createWeatherAssistant({ fetchImpl, clock: () => TEST_DATE, geonamesUsername: "test-user" });
   const result = await answerWeather({
     question: "¿Cómo está el clima ahora?",
     currentLocation: { latitude: -34.6, longitude: -58.4 },
   });
   assert.equal(result.weather.period, WEATHER_INTENTS.CURRENT);
-  assert.equal(result.weather.location.name, "Tu ubicación actual");
+  assert.equal(result.weather.location.name, "Buenos Aires");
   assert.equal(result.weather.current.temperature, 24.3);
   assert.equal(result.weather.current.relativeHumidity, 48);
   assert.match(result.answer, /24°/);
-  assert.equal(calls.filter((url) => url.includes("geocoding-api")).length, 0);
+  const geonamesUrl = new URL(calls.find((url) => url.includes("searchJSON")));
+  assert.equal(geonamesUrl.searchParams.get("country"), "AR");
+  assert.equal(geonamesUrl.searchParams.get("name"), "Buenos Aires");
+  const forecastUrl = new URL(calls.find((url) => url.includes("v1/forecast")));
+  assert.equal(Number(forecastUrl.searchParams.get("latitude")), result.weather.location.latitude);
+  assert.equal(Number(forecastUrl.searchParams.get("longitude")), result.weather.location.longitude);
 });
 
 test("returns today, tomorrow and seven-day forecasts with exact API values", async () => {
   const { fetchImpl } = openMeteoFetch();
-  const answerWeather = createWeatherAssistant({ fetchImpl, clock: () => TEST_DATE });
+  const answerWeather = createWeatherAssistant({ fetchImpl, clock: () => TEST_DATE, geonamesUsername: "test-user" });
   const today = await answerWeather({ question: "¿Cómo va a estar hoy en Buenos Aires, Argentina?" });
   const tomorrow = await answerWeather({ question: "¿Va a llover mañana en Buenos Aires, Argentina?" });
   const week = await answerWeather({ question: "¿Cómo va a estar los próximos 7 días en Buenos Aires, Argentina?" });
@@ -196,7 +259,7 @@ test("returns today, tomorrow and seven-day forecasts with exact API values", as
 
 test("returns an hourly forecast for the requested local hour", async () => {
   const { fetchImpl } = openMeteoFetch();
-  const answerWeather = createWeatherAssistant({ fetchImpl, clock: () => TEST_DATE });
+  const answerWeather = createWeatherAssistant({ fetchImpl, clock: () => TEST_DATE, geonamesUsername: "test-user" });
   const result = await answerWeather({ question: "¿Qué temperatura tendremos mañana a las 15 hs en Buenos Aires, Argentina?" });
   assert.equal(result.weather.period, WEATHER_INTENTS.HOURLY);
   assert.equal(result.weather.hours.length, 1);
@@ -206,23 +269,23 @@ test("returns an hourly forecast for the requested local hour", async () => {
 
 test("returns a forecast for Villa Carlos Paz and asks before choosing duplicate localities", async () => {
   const villaFetch = openMeteoFetch({ locations: () => [place("Villa Carlos Paz", "Córdoba", "Argentina", 2)] });
-  const villaAssistant = createWeatherAssistant({ fetchImpl: villaFetch.fetchImpl, clock: () => TEST_DATE });
+  const villaAssistant = createWeatherAssistant({ fetchImpl: villaFetch.fetchImpl, clock: () => TEST_DATE, geonamesUsername: "test-user" });
   const villa = await villaAssistant({ question: "¿Va a llover en Villa Carlos Paz?" });
   assert.equal(villa.weather.location.name, "Villa Carlos Paz");
   assert.equal(villa.weather.location.admin1, "Córdoba");
 
   const ambiguousFetch = openMeteoFetch({
-    locations: () => [place("Springfield", "Illinois", "United States", 3), place("Springfield", "Massachusetts", "United States", 4)],
+    locations: () => [place("San Martín", "Córdoba", "Argentina", 3), place("San Martín", "Santa Fe", "Argentina", 4)],
   });
-  const ambiguousAssistant = createWeatherAssistant({ fetchImpl: ambiguousFetch.fetchImpl, clock: () => TEST_DATE });
-  const ambiguous = await ambiguousAssistant({ question: "¿Cómo está el clima en Springfield?" });
+  const ambiguousAssistant = createWeatherAssistant({ fetchImpl: ambiguousFetch.fetchImpl, clock: () => TEST_DATE, geonamesUsername: "test-user" });
+  const ambiguous = await ambiguousAssistant({ question: "¿Cómo está el clima en San Martín?" });
   assert.equal(ambiguous.status, "location_ambiguous");
   assert.equal(ambiguous.weather.needsClarification, true);
 });
 
 test("does not invent a result when a locality is not found", async () => {
   const { fetchImpl, calls } = openMeteoFetch({ locations: () => [] });
-  const answerWeather = createWeatherAssistant({ fetchImpl, clock: () => TEST_DATE });
+  const answerWeather = createWeatherAssistant({ fetchImpl, clock: () => TEST_DATE, geonamesUsername: "test-user" });
   const result = await answerWeather({ question: "¿Va a llover mañana en Localidad Inexistente?" });
   assert.equal(result.status, "location_not_found");
   assert.match(result.answer, /No encontré esa localidad/);
@@ -231,17 +294,18 @@ test("does not invent a result when a locality is not found", async () => {
 
 test("uses the configured default location when browser geolocation is denied or unavailable", async () => {
   const { fetchImpl, calls } = openMeteoFetch();
-  const answerWeather = createWeatherAssistant({ fetchImpl, clock: () => TEST_DATE, defaultLocation: "Buenos Aires, Argentina" });
+  const answerWeather = createWeatherAssistant({ fetchImpl, clock: () => TEST_DATE, defaultLocation: "Buenos Aires, Argentina", geonamesUsername: "test-user" });
   const result = await answerWeather({ question: "¿Va a llover mañana?", currentLocation: null });
   assert.equal(result.weather.usedDefaultLocation, true);
-  const geocodingUrl = new URL(calls.find((url) => url.includes("geocoding-api")));
-  assert.equal(geocodingUrl.searchParams.get("name"), "Buenos Aires, Argentina");
+  const geocodingUrl = new URL(calls.find((url) => url.includes("searchJSON")));
+  assert.equal(geocodingUrl.searchParams.get("name"), "Buenos Aires");
+  assert.equal(geocodingUrl.searchParams.get("country"), "AR");
   assert.equal(result.weather.days[0].date, "2026-11-23");
 });
 
 test("reports an Open-Meteo failure without falling back to stale data", async () => {
   const { fetchImpl } = openMeteoFetch({ failForecast: true });
-  const answerWeather = createWeatherAssistant({ fetchImpl, clock: () => TEST_DATE });
+  const answerWeather = createWeatherAssistant({ fetchImpl, clock: () => TEST_DATE, geonamesUsername: "test-user" });
   const result = await answerWeather({ question: "¿Cómo está el clima ahora?", currentLocation: { latitude: -34.6, longitude: -58.4 } });
   assert.equal(result.status, "weather_unavailable");
   assert.equal(result.weather, null);

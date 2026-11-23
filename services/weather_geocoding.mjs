@@ -1,4 +1,4 @@
-const GEOCODING_URL = "https://geocoding-api.open-meteo.com/v1/search";
+const GEONAMES_SEARCH_URL = "https://api.geonames.org/searchJSON";
 
 export class WeatherLocationError extends Error {
   constructor(code, candidates = []) {
@@ -15,84 +15,98 @@ function normalize(value) {
 }
 
 function displayLocation(item) {
+  const latitude = Number(item.lat);
+  const longitude = Number(item.lng);
   return {
     name: item.name,
-    admin1: item.admin1 || "",
-    country: item.country || "",
-    latitude: item.latitude,
-    longitude: item.longitude,
-    timezone: item.timezone || "auto",
-    id: item.id,
-    featureCode: item.feature_code || "",
+    admin1: item.adminName1 || "",
+    province: item.adminName1 || "",
+    country: item.countryName || "Argentina",
+    countryCode: item.countryCode,
+    latitude,
+    longitude,
+    timezone: item.timezone?.timeZoneId || "auto",
+    id: item.geonameId,
+    geonameId: item.geonameId,
+    featureCode: item.fcode || "",
   };
 }
 
-function validCandidate(item) {
-  return item && typeof item.name === "string"
-    && Number.isFinite(item.latitude) && item.latitude >= -90 && item.latitude <= 90
-    && Number.isFinite(item.longitude) && item.longitude >= -180 && item.longitude <= 180;
+function validResult(item) {
+  const latitude = Number(item?.lat);
+  const longitude = Number(item?.lng);
+  return item && typeof item.name === "string" && item.name.trim().length > 0
+    && item.countryCode === "AR"
+    && Number.isFinite(latitude) && latitude >= -90 && latitude <= 90
+    && Number.isFinite(longitude) && longitude >= -180 && longitude <= 180
+    && Number.isInteger(Number(item.geonameId));
 }
 
-export async function geocodeCountryCode(name, { fetchImpl = fetch } = {}) {
+export async function resolveLocationArgentina(name, province = "", {
+  fetchImpl = fetch,
+  username = "",
+} = {}) {
   const query = typeof name === "string" ? name.trim() : "";
-  if (query.length < 2 || query.length > 120) return "";
-  const params = new URLSearchParams({ name: query, count: "100", language: "es", format: "json" });
-  let response;
-  try {
-    response = await fetchImpl(`${GEOCODING_URL}?${params}`, { signal: AbortSignal.timeout(4000) });
-    if (!response.ok) return "";
-    const payload = await response.json();
-    const expected = normalize(query);
-    const country = (Array.isArray(payload.results) ? payload.results : []).find((item) =>
-      validCandidate(item) && /^PCLI$/i.test(item.feature_code || "")
-      && normalize(item.name) === expected && /^[A-Z]{2}$/i.test(item.country_code || ""));
-    return country?.country_code?.toUpperCase() || "";
-  } catch {
-    return "";
+  const provinceQuery = typeof province === "string" ? province.trim() : "";
+  if (query.length < 2 || query.length > 120 || provinceQuery.length > 100) {
+    throw new WeatherLocationError("location_not_found");
   }
-}
+  if (!username || typeof username !== "string") {
+    throw new WeatherLocationError("geonames_not_configured");
+  }
 
-export async function geocodeLocation(name, { fetchImpl = fetch } = {}) {
-  const query = typeof name === "string" ? name.trim() : "";
-  if (query.length < 2 || query.length > 120) throw new WeatherLocationError("location_not_found");
-  const parts = query.split(",").map((part) => part.trim()).filter(Boolean);
-  const params = new URLSearchParams({ name: query, count: "10", language: "es", format: "json" });
-  const countryQualifier = parts[1];
-  if (countryQualifier && /^[a-z]{2}$/i.test(countryQualifier)) params.set("countryCode", countryQualifier.toUpperCase());
-  const url = `${GEOCODING_URL}?${params}`;
+  const params = new URLSearchParams({
+    name: query,
+    country: "AR",
+    lang: "es",
+    maxRows: "1",
+    username,
+    type: "json",
+  });
   let response;
   try {
-    response = await fetchImpl(url, { signal: AbortSignal.timeout(8000) });
-  } catch {
+    response = await fetchImpl(`${GEONAMES_SEARCH_URL}?${params}`, { signal: AbortSignal.timeout(8000) });
+  } catch (error) {
+    console.error(`[Weather] GeoNames connection failed (${error?.name || "Error"})`);
     throw new WeatherLocationError("geocoding_unavailable");
   }
-  if (!response.ok) throw new WeatherLocationError("geocoding_unavailable");
+  if (!response.ok) {
+    console.error(`[Weather] GeoNames HTTP error (${response.status})`);
+    throw new WeatherLocationError("geocoding_unavailable");
+  }
+
   let payload;
   try {
     payload = await response.json();
   } catch {
+    console.error("[Weather] GeoNames returned invalid JSON");
     throw new WeatherLocationError("geocoding_unavailable");
   }
-  const results = Array.isArray(payload.results) ? payload.results.filter(validCandidate) : [];
-  if (!results.length) throw new WeatherLocationError("location_not_found");
-
-  let candidates = results;
-  // Open-Meteo applies the qualifier in the query itself. Do not re-filter
-  // against localized display names here: "United States" may be returned as
-  // "Estados Unidos" when language=es.
-
-  // Prefer populated localities over administrative regions with the same name.
-  const settlements = candidates.filter((item) => /^(?:PPL|PPLC|PPLA|PPLA2|PPLA3|PPLX)/i.test(item.feature_code || ""));
-  if (settlements.length) candidates = settlements;
-
-  const normalizedName = normalize(parts[0]);
-  const exact = candidates.filter((item) => normalize(item.name) === normalizedName);
-  if (exact.length) candidates = exact;
-  candidates = candidates.slice(0, 6);
-
-  if (candidates.length > 1) {
-    throw new WeatherLocationError("location_ambiguous", candidates.map(displayLocation));
+  if (payload?.status) {
+    const errorCode = Number(payload.status.value);
+    console.error(`[Weather] GeoNames service error (${Number.isFinite(errorCode) ? errorCode : "unknown"})`);
+    throw new WeatherLocationError(errorCode === 10 || errorCode === 11
+      ? "geonames_auth_failed" : "geocoding_unavailable");
   }
-  return displayLocation(candidates[0]);
+
+  const matches = Array.isArray(payload.geonames) ? payload.geonames : [];
+  if (!matches.length) throw new WeatherLocationError("location_not_found");
+  const result = matches[0];
+  if (!validResult(result) || (result.fcl && result.fcl !== "P")) {
+    throw new WeatherLocationError("location_not_found");
+  }
+
+  const location = displayLocation(result);
+  if (provinceQuery && normalize(location.province) !== normalize(provinceQuery)) {
+    throw new WeatherLocationError("province_mismatch", [location]);
+  }
+  if (!provinceQuery && Number(payload.totalResultsCount) > 1 && result.fcode !== "PPLC") {
+    throw new WeatherLocationError("location_ambiguous", [location]);
+  }
+  return location;
 }
 
+// Kept as an alias for existing callers; every lookup is still constrained to AR.
+export async function geocodeLocation(name, { fetchImpl = fetch, username = "", province = "" } = {}) {
+  return resolveLocationArgentina(name, province, { fetchImpl, username });
+}
