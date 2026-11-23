@@ -206,13 +206,56 @@ test("general question does not call Tavily", async () => {
   assert.equal(mock.calls.gemini.length, 1);
   assert.equal(mock.calls.gemini[0].toolConfig.functionCallingConfig.mode, "AUTO");
   assert.equal(mock.calls.gemini[0].tools[0].functionDeclarations[0].name, "web_search");
+  assert.deepEqual(mock.calls.gemini[0].generationConfig, {
+    maxOutputTokens: 1024,
+    temperature: 0.75,
+    topP: 0.9,
+  });
+});
+
+test("greeting uses a conversational Argentine prompt without a fixed word ceiling", async () => {
+  const mock = createMockFetch({
+    onGemini: (body) => response({
+      candidates: [{ content: { parts: [{ text: "¡Buenas! Todo tranqui por acá. ¿Cómo viene tu día?" }] } }],
+    }),
+  });
+  const app = createApp({ fetchImpl: mock.fetchImpl });
+  const result = await app.post({ question: "Hola, ¿cómo estás?" });
+  const prompt = mock.calls.gemini[0].systemInstruction.parts[0].text;
+
+  assert.equal(result.json.answer, "¡Buenas! Todo tranqui por acá. ¿Cómo viene tu día?");
+  assert.match(prompt, /español argentino/);
+  assert.match(prompt, /voseo natural/);
+  assert.match(prompt, /turnos anteriores/);
+  assert.doesNotMatch(prompt, /máximo de 80 palabras/);
+});
+
+test("chat accepts and forwards eight chronological turns", async () => {
+  const mock = createMockFetch({
+    onGemini: (body) => response({
+      candidates: [{ content: { parts: [{ text: "Sí, retomo el tema anterior." }] } }],
+    }),
+  });
+  const app = createApp({ fetchImpl: mock.fetchImpl });
+  const history = Array.from({ length: 8 }, (_, index) => ({
+    question: `pregunta ${index + 1}`,
+    answer: `respuesta ${index + 1}`,
+  }));
+  const result = await app.post({ question: "¿Y qué pasó después?", history });
+  const contents = mock.calls.gemini[0].contents;
+
+  assert.equal(result.json.status, "ok");
+  assert.equal(contents.length, 17);
+  assert.equal(contents[0].parts[0].text, "pregunta 1");
+  assert.equal(contents[15].parts[0].text, "respuesta 8");
+  assert.equal(contents[16].parts[0].text, "¿Y qué pasó después?");
 });
 
 test("disabled search cannot return a claim that the assistant searched", async () => {
   const mock = createMockFetch({
     onGemini: () => response({
       candidates: [{
-        content: { parts: [{ text: "Déjame buscar la información actualizada." }] },
+        content: { parts: [{ text: "La noticia ocurrió esta mañana. Déjame buscar la fuente oficial." }] },
       }],
     }),
   });
@@ -224,6 +267,7 @@ test("disabled search cannot return a claim that the assistant searched", async 
 
   assert.equal(result.json.status, "search_not_performed");
   assert.equal(result.json.searched_web, false);
+  assert.match(result.json.answer, /La noticia ocurrió esta mañana/);
   assert.match(result.json.answer, /No consulté Internet/);
   assert.equal(mock.calls.search.length, 0);
 });

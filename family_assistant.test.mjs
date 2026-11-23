@@ -302,7 +302,7 @@ class MemorySupabase {
   }
 }
 
-function createFetch(update = {}) {
+function createFetch(update = {}, { onExtraction } = {}) {
   const calls = { gemini: [], extraction: [] };
   const familyUpdate = {
     memories: [{
@@ -354,6 +354,7 @@ function createFetch(update = {}) {
     const body = JSON.parse(options.body);
     if (body.generationConfig.responseMimeType === "application/json") {
       calls.extraction.push(body);
+      if (onExtraction) return onExtraction(body, calls);
       return new Response(JSON.stringify({
         candidates: [{ content: { parts: [{ text: JSON.stringify(familyUpdate) }] } }],
       }));
@@ -394,7 +395,7 @@ test("selected speaker is validated and persisted with author, subject and sourc
     method: "POST",
     headers: { authorization: `Bearer ${DEVICE_TOKEN}` },
     body: {
-      question: "Anota que Luis prefiere leche sin lactosa.",
+      question: "Anota que Luis prefiere leche sin lactosa, agregá la tarea de comprar leche y actualiza el proyecto Huerta.",
       history: [],
       speaker_id: MEMBER_IDS[0],
     },
@@ -432,7 +433,221 @@ test("selected speaker is validated and persisted with author, subject and sourc
       && call.args.p_member_id === MEMBER_IDS[0]
   )));
   assert.equal(calls.extraction.length, 1);
+  assert.equal(calls.extraction[0].generationConfig.temperature, 0);
+  assert.equal(calls.extraction[0].generationConfig.maxOutputTokens, 1024);
   assert.match(calls.gemini[0].systemInstruction.parts[0].text, /America\/Argentina\/Cordoba/);
+});
+
+test("a family member can retrieve a relevant memory whose subject is another member", async () => {
+  const supabase = new MemorySupabase();
+  supabase.tables.memories.push({
+    id: randomUUID(),
+    subject_member_id: MEMBER_IDS[2],
+    category: "LIKES",
+    content: "A Sofía le gusta escuchar rock.",
+    importance: 4,
+    confidence: 0.95,
+    active: true,
+    valid_until: null,
+    metadata: { provided_by_member_id: MEMBER_IDS[1] },
+  });
+  const { fetchImpl, calls } = createFetch({
+    memories: [], preferences: [], emotionalContext: [], projects: [], tasks: [], reminders: [],
+    completedTaskIds: [], reopenedTaskIds: [], completedReminderIds: [], followups: [],
+    completedFollowupIds: [], cancelledFollowupIds: [], subjectMemberId: null,
+  });
+  const handler = createChatHandler({
+    config: CONFIG,
+    redis: new MemoryRedis(),
+    supabase,
+    fetchImpl,
+  });
+  const res = createResponse();
+  await handler({
+    method: "POST",
+    headers: { authorization: `Bearer ${DEVICE_TOKEN}` },
+    body: { question: "¿Qué música le gusta a Sofía?", speaker_id: MEMBER_IDS[0] },
+  }, res);
+
+  assert.equal(res.statusCode, 200);
+  assert.match(calls.gemini[0].systemInstruction.parts[0].text, /A Sofía le gusta escuchar rock/);
+  assert.match(calls.gemini[0].systemInstruction.parts[0].text, /visibles para todos los integrantes/);
+});
+
+test("a clear correction updates the matching memory instead of adding a new fact", async () => {
+  const supabase = new MemorySupabase();
+  const memoryId = randomUUID();
+  supabase.tables.memories.push({
+    id: memoryId,
+    subject_member_id: MEMBER_IDS[2],
+    category: "LIKES",
+    content: "A Sofía le gusta escuchar pop.",
+    importance: 4,
+    confidence: 0.95,
+    active: true,
+    valid_until: null,
+    metadata: {},
+  });
+  const { fetchImpl } = createFetch({
+    memories: [{
+      memoryId,
+      subjectMemberId: MEMBER_IDS[2],
+      category: "LIKES",
+      content: "A Sofía le gusta escuchar rock.",
+      importance: 4,
+      confidence: 1,
+      reason: "Sofía corrigió el dato.",
+    }],
+    preferences: [], emotionalContext: [], projects: [], tasks: [], reminders: [],
+    completedTaskIds: [], reopenedTaskIds: [], completedReminderIds: [], followups: [],
+    completedFollowupIds: [], cancelledFollowupIds: [], subjectMemberId: MEMBER_IDS[2],
+  });
+  const handler = createChatHandler({
+    config: CONFIG,
+    redis: new MemoryRedis(),
+    supabase,
+    fetchImpl,
+  });
+  const res = createResponse();
+  await handler({
+    method: "POST",
+    headers: { authorization: `Bearer ${DEVICE_TOKEN}` },
+    body: {
+      question: "Corrijo el dato de Sofía: ahora le gusta escuchar rock, no pop.",
+      speaker_id: MEMBER_IDS[0],
+    },
+  }, res);
+
+  const savedMemory = supabase.rpcCalls.find((call) => call.name === "save_family_memory");
+  assert.equal(res.statusCode, 200);
+  assert.equal(savedMemory.args.p_memory_id, memoryId);
+  assert.equal(savedMemory.args.p_content, "A Sofía le gusta escuchar rock.");
+});
+
+test("exact duplicate memories are not saved again", async () => {
+  const supabase = new MemorySupabase();
+  supabase.tables.memories.push({
+    id: randomUUID(),
+    subject_member_id: MEMBER_IDS[2],
+    category: "LIKES",
+    content: "A Sofía le gusta escuchar rock.",
+    importance: 4,
+    confidence: 0.95,
+    active: true,
+    valid_until: null,
+    metadata: {},
+  });
+  const { fetchImpl } = createFetch({
+    memories: [{
+      memoryId: null,
+      subjectMemberId: MEMBER_IDS[2],
+      category: "LIKES",
+      content: "A Sofía le gusta escuchar rock.",
+      importance: 4,
+      confidence: 0.95,
+    }],
+    preferences: [], emotionalContext: [], projects: [], tasks: [], reminders: [],
+    completedTaskIds: [], reopenedTaskIds: [], completedReminderIds: [], followups: [],
+    completedFollowupIds: [], cancelledFollowupIds: [], subjectMemberId: null,
+  });
+  const handler = createChatHandler({ config: CONFIG, redis: new MemoryRedis(), supabase, fetchImpl });
+  const res = createResponse();
+  await handler({
+    method: "POST",
+    headers: { authorization: `Bearer ${DEVICE_TOKEN}` },
+    body: { question: "A Sofía le gusta escuchar rock.", speaker_id: MEMBER_IDS[0] },
+  }, res);
+
+  assert.equal(res.statusCode, 200);
+  assert.equal(supabase.rpcCalls.filter((call) => call.name === "save_family_memory").length, 0);
+});
+
+test("casual reports do not create tasks or reminders", async () => {
+  const supabase = new MemorySupabase();
+  const { fetchImpl } = createFetch();
+  const handler = createChatHandler({ config: CONFIG, redis: new MemoryRedis(), supabase, fetchImpl });
+  const res = createResponse();
+  await handler({
+    method: "POST",
+    headers: { authorization: `Bearer ${DEVICE_TOKEN}` },
+    body: { question: "Hoy fui al supermercado y me crucé con una vecina.", speaker_id: MEMBER_IDS[0] },
+  }, res);
+
+  assert.equal(res.statusCode, 200);
+  assert.equal(supabase.rpcCalls.some((call) => call.name === "create_family_task"), false);
+  assert.equal(supabase.rpcCalls.some((call) => call.name === "create_family_reminder"), false);
+});
+
+test("chat returns after conversation persistence while Vercel schedules knowledge extraction", async () => {
+  const supabase = new MemorySupabase();
+  let markExtractionStarted;
+  const extractionStarted = new Promise((resolve) => { markExtractionStarted = resolve; });
+  let finishExtraction;
+  const extractionGate = new Promise((resolve) => { finishExtraction = resolve; });
+  const { fetchImpl } = createFetch({}, {
+    onExtraction: async () => {
+      markExtractionStarted();
+      await extractionGate;
+      return new Response(JSON.stringify({
+        candidates: [{ content: { parts: [{ text: JSON.stringify({
+          memories: [], preferences: [], emotionalContext: [], projects: [], tasks: [], reminders: [],
+          completedTaskIds: [], reopenedTaskIds: [], completedReminderIds: [], followups: [],
+          completedFollowupIds: [], cancelledFollowupIds: [], subjectMemberId: null,
+          clarificationQuestion: "",
+        }) }] } }],
+      }));
+    },
+  });
+  const scheduled = [];
+  const handler = createChatHandler({
+    config: CONFIG,
+    redis: new MemoryRedis(),
+    supabase,
+    fetchImpl,
+    scheduleBackground: (promise) => scheduled.push(promise),
+  });
+  const res = createResponse();
+  await handler({
+    method: "POST",
+    headers: { authorization: `Bearer ${DEVICE_TOKEN}` },
+    body: { question: "Hola", speaker_id: MEMBER_IDS[0] },
+  }, res);
+  await extractionStarted;
+
+  const payload = JSON.parse(res.body);
+  assert.equal(res.statusCode, 200);
+  assert.equal(payload.answer, "De acuerdo, lo anoto.");
+  assert.equal(supabase.tables.messages.length, 2);
+  assert.equal(scheduled.length, 1);
+
+  finishExtraction();
+  await scheduled[0];
+});
+
+test("conversation response survives a background knowledge extraction failure", async () => {
+  const supabase = new MemorySupabase();
+  const { fetchImpl } = createFetch({}, {
+    onExtraction: async () => { throw new Error("mock extraction failure"); },
+  });
+  const scheduled = [];
+  const handler = createChatHandler({
+    config: CONFIG,
+    redis: new MemoryRedis(),
+    supabase,
+    fetchImpl,
+    scheduleBackground: (promise) => scheduled.push(promise),
+  });
+  const res = createResponse();
+  await handler({
+    method: "POST",
+    headers: { authorization: `Bearer ${DEVICE_TOKEN}` },
+    body: { question: "Hola", speaker_id: MEMBER_IDS[0] },
+  }, res);
+  await scheduled[0];
+
+  assert.equal(res.statusCode, 200);
+  assert.equal(JSON.parse(res.body).answer, "De acuerdo, lo anoto.");
+  assert.equal(supabase.tables.messages.length, 2);
 });
 
 test("mobile chat uses the selected family member without requiring an active ESP32", async () => {

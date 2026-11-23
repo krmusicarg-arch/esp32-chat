@@ -14,6 +14,8 @@ const STOP_WORDS = new Set([
   "a", "al", "de", "del", "el", "en", "es", "la", "las", "los", "mi", "mis",
   "por", "que", "se", "su", "un", "una", "y",
 ]);
+const MIN_MEMORY_CONFIDENCE = 0.65;
+const MIN_MEMORY_RELEVANCE = 12;
 
 function terms(value) {
   return new Set(String(value).toLocaleLowerCase("es-AR")
@@ -22,23 +24,38 @@ function terms(value) {
     ?.filter((term) => !STOP_WORDS.has(term)) || []);
 }
 
-export async function getMemories(supabase, { memberId, question, limit = 30 }) {
+export async function getMemories(supabase, {
+  question,
+  history = [],
+  limit = 30,
+  now = new Date(),
+}) {
   const select = "id,subject_member_id,category,content,importance,confidence,source_message_id,valid_from,valid_until,metadata";
+  const followUp = /^(?:[¿?]\s*)?(?:y\b|[eé]l\b|ella\b|eso\b|ese\b|esa\b|lo\b|la\b|los\b|las\b|cu[aá]l\b|qui[eé]n\b|d[oó]nde\b|cu[aá]ndo\b|cu[aá]nto\b)/i
+    .test(String(question || "").trim());
+  const previousContext = followUp
+    ? history.slice(-2).map((turn) => `${turn.question} ${turn.answer}`).join(" ")
+    : "";
+  const relevanceText = `${question || ""} ${previousContext}`;
+  const normalizedRelevance = relevanceText.toLocaleLowerCase("es-AR")
+    .normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+  const asksAboutBirthdays = /\bcumple(?:n|anos)?\b/.test(normalizedRelevance);
+  const asksForMemory = /\b(?:recorda|recordas|recuerdo|recuerdos|sabes|gustos|datos de mi|que sabes de|que recordas)\b/.test(normalizedRelevance);
+  const notExpiredFilter = `(valid_until.is.null,valid_until.gt.${now.toISOString()})`;
   const query = new URLSearchParams({
     select,
     active: "eq.true",
+    or: notExpiredFilter,
     order: "importance.desc,confidence.desc,valid_from.desc",
     limit: String(limit),
   });
-  const normalizedQuestion = String(question || "").toLocaleLowerCase("es-AR")
-    .normalize("NFD").replace(/[\u0300-\u036f]/g, "");
-  const asksAboutBirthdays = /\b(?:cumple|cumpleanos)\b/.test(normalizedQuestion);
   const [rows, birthdayRows] = await Promise.all([
     supabase.select("memories", query),
     asksAboutBirthdays
       ? supabase.select("memories", new URLSearchParams({
         select,
         active: "eq.true",
+        or: notExpiredFilter,
         category: "eq.IMPORTANT_EVENTS",
         content: "ilike.*cumple*",
         order: "valid_from.desc",
@@ -47,22 +64,30 @@ export async function getMemories(supabase, { memberId, question, limit = 30 }) 
       : Promise.resolve([]),
   ]);
   const uniqueRows = new Map([...rows, ...birthdayRows].map((row) => [row.id, row]));
-  const queryTerms = terms(question);
-  const scoredRows = [...uniqueRows.values()].map((row) => {
+  const queryTerms = terms(relevanceText);
+  const nowTime = now.getTime();
+  const scoredRows = [...uniqueRows.values()].filter((row) => (
+    row.active !== false
+    && Number(row.confidence ?? 1) >= MIN_MEMORY_CONFIDENCE
+    && (!row.valid_until || new Date(row.valid_until).getTime() > nowTime)
+  )).map((row) => {
     const contentTerms = terms(row.content);
     const overlap = [...queryTerms].filter((term) => contentTerms.has(term)).length;
     const score = overlap * 4 + Number(row.importance || 3)
       + Number(row.confidence || 0) * 2;
-    return { ...row, relevance: score };
+    return { ...row, relevance: score, overlap };
   }).sort((a, b) => b.relevance - a.relevance);
-  if (!asksAboutBirthdays) return scoredRows.slice(0, Math.min(8, limit));
+  if (!asksAboutBirthdays) {
+    return scoredRows.filter((row) => asksForMemory
+      ? row.relevance >= MIN_MEMORY_CONFIDENCE * 10
+      : row.overlap > 0 && row.relevance >= MIN_MEMORY_RELEVANCE)
+      .slice(0, Math.min(8, limit));
+  }
 
   const birthdays = scoredRows.filter((row) => row.category === "IMPORTANT_EVENTS"
-    && /\bcumple(?:anos)?\b/.test(String(row.content || "").toLocaleLowerCase("es-AR")
+    && /\bcumple(?:n|anos)?\b/.test(String(row.content || "").toLocaleLowerCase("es-AR")
       .normalize("NFD").replace(/[\u0300-\u036f]/g, "")));
-  const otherRelevantMemories = scoredRows.filter((row) => !birthdays.includes(row))
-    .slice(0, Math.min(8, limit));
-  return [...birthdays, ...otherRelevantMemories];
+  return birthdays;
 }
 
 export async function getPreferences(supabase, { memberId, limit = 8 }) {

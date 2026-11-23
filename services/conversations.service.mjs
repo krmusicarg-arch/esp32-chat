@@ -1,28 +1,53 @@
 import { randomUUID } from "node:crypto";
 
-export async function getRecentConversations(supabase, { memberId, limit = 3 }) {
+export async function getLatestConversationId(supabase, { memberId }) {
   const query = new URLSearchParams({
-    select: "conversation_id,content,created_at",
-    sender_member_id: `eq.${memberId}`,
-    role: "eq.user",
-    order: "created_at.desc",
-    limit: String(limit),
+    select: "id",
+    member_id: `eq.${memberId}`,
+    ended_at: "is.null",
+    order: "started_at.desc",
+    limit: "1",
   });
-  const userMessages = await supabase.select("messages", query);
-  const turns = [];
-  for (const userMessage of userMessages) {
-    const conversationQuery = new URLSearchParams({
-      select: "role,content",
-      conversation_id: `eq.${userMessage.conversation_id}`,
-      order: "created_at.asc",
-      limit: "10",
-    });
-    const messages = await supabase.select("messages", conversationQuery);
-    const user = messages.find((message) => message.role === "user");
-    const answer = messages.find((message) => message.role === "assistant");
-    if (user && answer) turns.push({ question: user.content, answer: answer.content });
+  const rows = await supabase.select("conversations", query);
+  return rows[0]?.id || null;
+}
+
+export async function getConversationHistory(supabase, {
+  conversationId,
+  memberId,
+  limit = 8,
+}) {
+  const ownerQuery = new URLSearchParams({
+    select: "id",
+    id: `eq.${conversationId}`,
+    member_id: `eq.${memberId}`,
+    limit: "1",
+  });
+  if (!(await supabase.select("conversations", ownerQuery)).length) {
+    const error = new Error("Conversation does not belong to the selected member");
+    error.code = "INVALID_CONVERSATION";
+    throw error;
   }
-  return turns.reverse();
+
+  const messagesQuery = new URLSearchParams({
+    select: "role,content,created_at",
+    conversation_id: `eq.${conversationId}`,
+    role: "in.(user,assistant)",
+    order: "created_at.desc,role.asc",
+    limit: String(limit * 2),
+  });
+  const messages = (await supabase.select("messages", messagesQuery)).reverse();
+  const turns = [];
+  let pendingQuestion = null;
+  for (const message of messages) {
+    if (message.role === "user") {
+      pendingQuestion = message.content;
+    } else if (message.role === "assistant" && pendingQuestion !== null) {
+      turns.push({ question: pendingQuestion, answer: message.content });
+      pendingQuestion = null;
+    }
+  }
+  return turns.slice(-limit);
 }
 
 export async function saveConversation(supabase, {
@@ -31,6 +56,7 @@ export async function saveConversation(supabase, {
   question,
   answer,
   searchedWeb,
+  channel = "esp32",
   subjectMemberId = null,
 }) {
   let id = conversationId;
@@ -51,13 +77,16 @@ export async function saveConversation(supabase, {
     await supabase.insert("conversations", {
       id,
       member_id: memberId,
-      channel: "esp32",
+      channel,
       metadata: {},
     });
   }
 
   const userMessageId = randomUUID();
   const assistantMessageId = randomUUID();
+  const turnTime = new Date();
+  const userCreatedAt = turnTime.toISOString();
+  const assistantCreatedAt = new Date(turnTime.getTime() + 1).toISOString();
   await supabase.insert("messages", [
     {
       id: userMessageId,
@@ -66,6 +95,7 @@ export async function saveConversation(supabase, {
       content: question,
       sender_member_id: memberId,
       subject_member_id: subjectMemberId,
+      created_at: userCreatedAt,
       metadata: { searched_web: searchedWeb },
     },
     {
@@ -75,6 +105,7 @@ export async function saveConversation(supabase, {
       content: answer,
       sender_member_id: null,
       subject_member_id: memberId,
+      created_at: assistantCreatedAt,
       metadata: { searched_web: searchedWeb },
     },
   ]);

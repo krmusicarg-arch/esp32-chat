@@ -253,8 +253,42 @@ de Vite.
 
 Las conversaciones móviles reutilizan el endpoint, el contexto, las memorias y
 las tablas existentes. No se agrega un esquema ni tablas nuevas. El valor
-histórico de canal de conversación permanece sin cambios para no asumir
-constraints del esquema real, que no está versionado en este repositorio.
+histórico de canal de conversaciones existentes permanece intacto; las nuevas
+conversaciones registran `pwa` o `esp32` según el tipo de sesión.
+
+## Continuidad conversacional y contexto familiar
+
+`POST /api/chat` recupera hasta ocho pares usuario/asistente de la conversación
+identificada por `conversation_id`, valida que pertenezca al integrante activo y
+los envía a Gemini en orden cronológico. Si un cliente inicia sin ID, Robert
+retoma la conversación abierta más reciente de ese mismo integrante; nunca
+mezcla mensajes de dos IDs. Esto permite que un cliente que arranca de cero
+retome la conversación familiar activa. La PWA conserva su ID en almacenamiento
+local y el ESP32 conserva el suyo mientras está encendido.
+
+La recuperación de `memories` usa relevancia textual, confianza mínima de 0.65
+y descarta recuerdos cuyo `valid_until` haya pasado. Las preguntas de
+cumpleaños recuperan todos los cumpleaños activos y confiables. La política
+actual solicitada es que cualquier integrante pueda consultar las memorias de
+cualquier otro; preferencias y contexto emocional continúan limitados al
+integrante seleccionado. Tareas, proyectos, recordatorios, preferencias y
+contexto emocional se agregan al prompt solo cuando la pregunta o el seguimiento
+trata de esos temas. No hubo cambios de esquema ni migraciones de Supabase.
+
+Las llamadas de conversación, síntesis web y extracción usan el modelo indicado
+por `GEMINI_MODEL`. La generación conversacional usa temperature 0.75, topP 0.9
+y 1024 tokens; la extracción estructurada mantiene temperature 0 y 1024 tokens.
+El endpoint guarda cada turno en Supabase antes de responder. En Vercel, la
+extracción y persistencia de memorias/tareas se agenda con `waitUntil` para que
+no demore la respuesta; la función tiene `maxDuration = 60`. `waitUntil` mantiene
+el trabajo durante el ciclo de vida de la función, pero no lo puede completar si
+la función llega al límite de duración. En desarrollo local, sin scheduler de
+Vercel, las actualizaciones familiares se esperan antes de responder.
+
+La PWA muestra la respuesta original y prepara una versión hablada con fechas,
+unidades y enlaces normalizados. La lectura empieza por fragmentos cuando la
+respuesta completa llega del backend; no hay streaming de texto del modelo. El
+reconocimiento de voz no se modificó.
 
 ## Documentación oficial consultada
 
@@ -266,6 +300,7 @@ constraints del esquema real, que no está versionado en este repositorio.
 - [Tavily créditos y precios](https://docs.tavily.com/documentation/api-credits)
 - [Upstash Redis REST](https://upstash.com/docs/redis/features/restapi)
 - [Vercel Functions](https://vercel.com/docs/functions)
+- [Vercel `waitUntil`](https://vercel.com/docs/functions/functions-api-reference/vercel-functions-package)
 - [Vercel Cron: uso y límites](https://vercel.com/docs/schedules/cron-jobs/usage-and-pricing)
 - [Vercel Schedules: límites](https://vercel.com/docs/schedules/limits)
 - [Supabase Cron](https://supabase.com/docs/guides/cron)

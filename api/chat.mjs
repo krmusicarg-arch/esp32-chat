@@ -1,6 +1,9 @@
+import { waitUntil } from "@vercel/functions";
 import { createChatHandler, configFromEnv } from "../lib/assistant.mjs";
 import { createUpstashStore } from "../lib/redis_store.mjs";
 import { createSupabaseClient } from "../database/supabase.mjs";
+
+export const maxDuration = 60;
 
 let handler;
 let initializationError;
@@ -13,6 +16,7 @@ export default async function chat(req, res) {
         config,
         redis: createUpstashStore(config),
         supabase: createSupabaseClient(config),
+        scheduleBackground: waitUntil,
       });
     } catch (error) {
       initializationError = error;
