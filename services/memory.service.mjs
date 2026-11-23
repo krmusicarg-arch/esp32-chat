@@ -23,23 +23,46 @@ function terms(value) {
 }
 
 export async function getMemories(supabase, { memberId, question, limit = 30 }) {
+  const select = "id,subject_member_id,category,content,importance,confidence,source_message_id,valid_from,valid_until,metadata";
   const query = new URLSearchParams({
-    select: "id,subject_member_id,category,content,importance,confidence,source_message_id,valid_from,valid_until,metadata",
+    select,
     active: "eq.true",
-    or: `(subject_member_id.is.null,subject_member_id.eq.${memberId})`,
     order: "importance.desc,confidence.desc,valid_from.desc",
     limit: String(limit),
   });
-  const rows = await supabase.select("memories", query);
+  const normalizedQuestion = String(question || "").toLocaleLowerCase("es-AR")
+    .normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+  const asksAboutBirthdays = /\b(?:cumple|cumpleanos)\b/.test(normalizedQuestion);
+  const [rows, birthdayRows] = await Promise.all([
+    supabase.select("memories", query),
+    asksAboutBirthdays
+      ? supabase.select("memories", new URLSearchParams({
+        select,
+        active: "eq.true",
+        category: "eq.IMPORTANT_EVENTS",
+        content: "ilike.*cumple*",
+        order: "valid_from.desc",
+        limit: "1000",
+      }))
+      : Promise.resolve([]),
+  ]);
+  const uniqueRows = new Map([...rows, ...birthdayRows].map((row) => [row.id, row]));
   const queryTerms = terms(question);
-  return rows.map((row) => {
+  const scoredRows = [...uniqueRows.values()].map((row) => {
     const contentTerms = terms(row.content);
     const overlap = [...queryTerms].filter((term) => contentTerms.has(term)).length;
     const score = overlap * 4 + Number(row.importance || 3)
       + Number(row.confidence || 0) * 2;
     return { ...row, relevance: score };
-  }).sort((a, b) => b.relevance - a.relevance)
+  }).sort((a, b) => b.relevance - a.relevance);
+  if (!asksAboutBirthdays) return scoredRows.slice(0, Math.min(8, limit));
+
+  const birthdays = scoredRows.filter((row) => row.category === "IMPORTANT_EVENTS"
+    && /\bcumple(?:anos)?\b/.test(String(row.content || "").toLocaleLowerCase("es-AR")
+      .normalize("NFD").replace(/[\u0300-\u036f]/g, "")));
+  const otherRelevantMemories = scoredRows.filter((row) => !birthdays.includes(row))
     .slice(0, Math.min(8, limit));
+  return [...birthdays, ...otherRelevantMemories];
 }
 
 export async function getPreferences(supabase, { memberId, limit = 8 }) {
