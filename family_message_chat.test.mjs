@@ -94,3 +94,32 @@ test("PWA voice/text message intent uses the session identity and does not call 
   assert.equal(supabase.transcript.length, 4);
   assert.ok(supabase.conversations.length);
 });
+
+test("voice transcript without the preposition still saves for surname-first Karina", async () => {
+  const supabase = new ChatSupabase();
+  const family = [
+    { id: IDS[0], name: "Ruiz Gustavo", active: true },
+    { id: IDS[1], name: "Ontivero Karina", active: true },
+    { id: IDS[2], name: "Ruiz Luisina", active: true },
+    { id: IDS[3], name: "Ruiz Valentin", active: true },
+  ];
+  const select = supabase.select.bind(supabase);
+  supabase.select = async (table, query) => table === "family_members" ? family : select(table, query);
+  const handler = createChatHandler({
+    config: { deviceToken: "device-token-test-0123456789", mobileSessionSecret: SECRET },
+    redis: {},
+    supabase,
+    fetchImpl: async () => { throw new Error("Gemini must not be called for a message command"); },
+  });
+
+  const response = await sendCommand(handler, {
+    question: "robertito Avisale Karina que prepare la comida esta noche",
+    requestId: "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee",
+  });
+
+  assert.equal(response.status, 200);
+  assert.equal(response.payload.status, "message_sent");
+  assert.equal(supabase.messages.length, 1);
+  assert.equal(supabase.messages[0].recipient_id, IDS[1]);
+  assert.equal(supabase.messages[0].content, "prepare la comida esta noche");
+});

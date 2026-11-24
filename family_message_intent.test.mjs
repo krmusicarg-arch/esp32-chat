@@ -37,6 +37,14 @@ test("recognizes natural voice command variants and transcribed punctuation", ()
     "Robertito, avisale a Karina que prepare la comida esta noche",
     "Quiero que le mandes un mensaje a Karina para que prepare la comida esta noche",
     "Me podés avisar a Karina que prepare la comida esta noche",
+    "Hola Robertito, mandale a Karina que ya salí",
+    "Che Robert, avisale a la Karina que venga",
+    "Mandale un mensaje a Karina diciéndole que venga",
+    "Mandale a Karina un mensaje que ya salí",
+    "Mandale a Karina de que ya salí",
+    "Mandale mensaje a Karina que prepare la comida",
+    "Podrías mandarle a Karina que ya llegué",
+    "Decile a Karina si puede comprar pan",
   ]) {
     const intent = detectFamilyMessageIntent(phrase, karina);
     assert.equal(intent.type, "send", phrase);

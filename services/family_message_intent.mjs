@@ -6,10 +6,29 @@ const normalize = (value) => String(value || "")
   .replace(/\s+/g, " ")
   .trim();
 
-const SEND_PATTERN = /^(?:(?:robert(?:ito)?|por favor|porfa|quiero(?: que)?|pod[eé]s?|puedes|me pod[eé]s|me puedes)\s+)*(?:(?:le|les)\s+)?(?:mand(?:a|á|ás|e|es|en|ar)|envi(?:a|á|ás|e|es|ar)|avis(?:a|á|ás|e|es|ar)|dec(?:i|í|ís|ir)|dig(?:a|as))(?:le|les)?(?:\s+un mensaje)?\s+(?:a\s+)?(.+?)\s+(?:para\s+que|que|:)\s*(.+)$/iu;
+function cleanTarget(target) {
+  return String(target || "")
+    .trim()
+    .replace(/^[,\s¿¡]+|[,\s?!.]+$/gu, "")
+    .replace(/^(?:a\s+|para\s+)?(?:(?:la|el|al|los|las|mi|mis)\s+)?/iu, "")
+    .replace(/\s+(?:un\s+)?(?:mensaje|aviso|nota)$/iu, "")
+    .replace(/[?.!,]+$/u, "")
+    .trim();
+}
+
+function cleanContent(content) {
+  return String(content || "")
+    .trim()
+    .replace(/^[,\s¿¡:.]+/gu, "")
+    .replace(/^(?:que|para que|de que)\s+/iu, "")
+    .replace(/[,\s?!.]+$/gu, "")
+    .trim();
+}
+
+const SEND_PATTERN = /^(?:(?:hola|buenas|buen d[ií]a|buenas tardes|buenas noches|che|hey)\s+)?(?:(?:robert(?:ito)?)\s*)?[,\s:]*(?:(?:por favor|porfa|quiero(?: que)?|quisiera(?: que)?|necesito(?: que)?|pod[eé]s?|puedes|podr[ií]as?|me pod[eé]s|me puedes|me podr[ií]as?)\s+)*(?:(?:le|les)\s+)?(?:mand(?:a|á|ás|e|es|en|ar)|envi(?:a|á|ás|e|es|ar)|avis(?:a|á|ás|e|es|ar)|dec(?:i|í|ís|ir)|dig(?:a|as))(?:le|les)?(?:\s+(?:un\s+)?(?:mensaje|aviso))?\s+(?:(?:a|para)\s+)?(.+?)(?:\s+(?:un\s+)?(?:mensaje|aviso))?(?:\s*(?:[,.:;]|\s+(?:para\s+que|de\s+que|que|dici[eé]ndo(?:le|les)?(?:\s+que)?|avis[aá]ndo(?:le|les)?(?:\s+que)?|si\s+puede|si)\b)\s*|\s*:\s*)\s*(.+)$/iu;
 
 function namedMembers(target, members) {
-  const normalizedTarget = normalize(target);
+  const normalizedTarget = normalize(cleanTarget(target));
   const targetTokens = normalizedTarget.split(" ").filter(Boolean);
   return members.filter((member) => {
     const name = normalize(member.name);
@@ -25,25 +44,27 @@ function namedMembers(target, members) {
 
 export function detectFamilyMessageIntent(question, members = []) {
   const original = String(question || "").trim()
-    .replace(/^[,\s¿¡]+|[,\s?!.]+$/gu, "")
-    .replace(/^(?:robert(?:ito)?)[,\s:]+/iu, "");
+    .replace(/^[,\s¿¡]+|[,\s?!.]+$/gu, "");
   const normalized = normalize(original);
   const match = original.match(SEND_PATTERN);
   if (match) {
-    const target = match[1].trim().replace(/[?.!,]+$/u, "");
-    const content = match[2].trim();
+    const rawTarget = match[1].trim().replace(/[?.!,]+$/u, "");
+    const target = cleanTarget(rawTarget);
+    const rawContent = match[2].trim();
+    const content = cleanContent(rawContent) || rawContent;
     if (!content) return { type: "clarify", answer: "¿Qué mensaje querés enviar?" };
-    if (/^(?:(?:para|a)\s+)?(?:todos|todas|todo el mundo|toda la familia|la familia)$/iu.test(target)) {
+    if (/^(?:(?:para|a)\s+)?(?:todos|todas|todo el mundo|toda la familia|la familia|el grupo)$/iu.test(rawTarget)
+        || /^(?:todos|todas|todo el mundo|toda la familia|la familia|el grupo)$/iu.test(target)) {
       return { type: "send", recipientId: null, recipientName: null, content };
     }
-    const recipients = namedMembers(target, members);
+    const recipients = namedMembers(rawTarget, members);
     if (recipients.length === 1) {
       return { type: "send", recipientId: recipients[0].id, recipientName: recipients[0].name, content };
     }
     if (recipients.length > 1) {
-      return { type: "clarify", answer: `Hay más de un integrante llamado ${target}. Decime el apellido o cómo distinguirlo. No envié el mensaje.` };
+      return { type: "clarify", answer: `Hay más de un integrante llamado ${target || rawTarget}. Decime el apellido o cómo distinguirlo. No envié el mensaje.` };
     }
-    return { type: "clarify", answer: `No encuentro a ${target} entre los integrantes activos. No envié el mensaje.` };
+    return { type: "clarify", answer: `No encuentro a ${rawTarget} entre los integrantes activos. No envié el mensaje.` };
   }
 
   if (/\b(?:tengo mensajes|mensajes (?:hay )?pendientes|mensajes sin leer|que mensajes recibi|mensajes recibidos)\b/u.test(normalized)) return { type: "unread" };
