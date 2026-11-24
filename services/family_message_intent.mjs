@@ -29,6 +29,7 @@ function cleanContent(content) {
 }
 
 const SEND_PATTERN = /^(?:(?:hola|buenas|buen d[ií]a|buenas tardes|buenas noches|che|hey)\s+)?(?:(?:robert(?:ito)?)\s*)?[,\s:]*(?:(?:por favor|porfa|quiero(?: que)?|quisiera(?: que)?|necesito(?: que)?|pod[eé]s?|puedes|podr[ií]as?|me pod[eé]s|me puedes|me podr[ií]as?)\s+)*(?:(?:le|les)\s+)?(?:mand(?:a|á|ás|e|es|en|ar)|envi(?:a|á|ás|e|es|ar)|avis(?:a|á|ás|e|es|ar)|dec(?:i|í|ís|ir)|dig(?:a|as))(?:le|les)?(?:\s+(?:(?:un|el|este|ese)\s+)?(?:mensaje|aviso))?\s+(?:(?:a|para)\s+)?(.+?)(?:\s+(?:un\s+)?(?:mensaje|aviso))?(?:\s*(?:[,.:;]|\s+(?:para\s+que|de\s+que|que|dici[eé]ndo(?:le|les)?(?:\s+que)?|avis[aá]ndo(?:le|les)?(?:\s+que)?|si\s+puede|si)\b)\s*|\s*:\s*)\s*(.+)$/iu;
+const SEND_WITHOUT_CONTENT_PATTERN = /^(?:(?:hola|buenas|buen d[ií]a|buenas tardes|buenas noches|che|hey)\s+)?(?:(?:robert(?:ito)?)\s*)?[,\s:]*(?:(?:por favor|porfa|quiero(?: que)?|quisiera(?: que)?|necesito(?: que)?|pod[eé]s?|puedes|podr[ií]as?|me pod[eé]s|me puedes|me podr[ií]as?)\s+)*(?:(?:le|les)\s+)?(?:mand(?:a|á|ás|e|es|en|ar)|envi(?:a|á|ás|e|es|ar)|avis(?:a|á|ás|e|es|ar)|dec(?:i|í|ís|ir)|dig(?:a|as))(?:le|les)?\s+(?:(?:(?:un|el|este|ese)\s+)?(?:mensaje|aviso)\s+)?(?:(?:a|para)\s+)?(.+?)\s*$/iu;
 
 function namedMembers(target, members) {
   const normalizedTarget = normalize(cleanTarget(target));
@@ -63,6 +64,20 @@ export function detectFamilyMessageIntent(question, members = []) {
     const recipients = namedMembers(rawTarget, members);
     if (recipients.length === 1) {
       return { type: "send", recipientId: recipients[0].id, recipientName: recipients[0].name, content };
+    }
+    if (recipients.length > 1) {
+      return { type: "clarify", answer: `Hay más de un integrante llamado ${target || rawTarget}. Decime el apellido o cómo distinguirlo. No envié el mensaje.` };
+    }
+    return { type: "clarify", answer: `No encuentro a ${rawTarget} entre los integrantes activos. No envié el mensaje.` };
+  }
+
+  const incompleteSend = original.match(SEND_WITHOUT_CONTENT_PATTERN);
+  if (incompleteSend) {
+    const rawTarget = incompleteSend[1].trim().replace(/[?.!,]+$/u, "");
+    const target = cleanTarget(rawTarget);
+    const recipients = namedMembers(rawTarget, members);
+    if (recipients.length === 1) {
+      return { type: "clarify", answer: `¿Qué mensaje querés enviarle a ${recipients[0].name}?` };
     }
     if (recipients.length > 1) {
       return { type: "clarify", answer: `Hay más de un integrante llamado ${target || rawTarget}. Decime el apellido o cómo distinguirlo. No envié el mensaje.` };
