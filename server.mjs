@@ -5,6 +5,8 @@ import { createSupabaseClient } from "./database/supabase.mjs";
 import { createFamilyApiHandler } from "./lib/family_api.mjs";
 import { createMobileSessionHandler } from "./lib/mobile_auth.mjs";
 import { createWeatherHandler } from "./lib/weather_controller.mjs";
+import { createReadApiHandler } from "./lib/read_api.mjs";
+import { createWeatherSummary } from "./services/weather_service.mjs";
 
 const config = configFromEnv();
 const supabase = createSupabaseClient(config);
@@ -19,6 +21,18 @@ const familyApiHandler = createFamilyApiHandler({
 });
 const mobileSessionHandler = createMobileSessionHandler({ config, supabase });
 const weatherHandler = createWeatherHandler({ config });
+const readApiHandler = createReadApiHandler({
+  config,
+  supabase,
+  weatherSummary: createWeatherSummary(),
+});
+const READ_API_PATHS = [
+  "/conversations",
+  "/conversations/messages",
+  "/tasks",
+  "/reminders",
+  "/agenda",
+];
 
 const server = createServer((req, res) => {
   const pathname = new URL(req.url || "/", "http://localhost").pathname;
@@ -34,6 +48,10 @@ const server = createServer((req, res) => {
   }
   if (familyPath === "/weather") {
     weatherHandler(req, res);
+    return;
+  }
+  if (READ_API_PATHS.includes(familyPath)) {
+    readApiHandler(req, res);
     return;
   }
   if (["/members", "/notifications/pending", "/notifications/ack"].includes(familyPath)) {

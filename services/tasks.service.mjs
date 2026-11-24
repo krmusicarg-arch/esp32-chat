@@ -8,6 +8,19 @@ export async function getOpenTasks(supabase, { limit = 10 }) {
   return supabase.select("tasks", query);
 }
 
+export async function getBoardTasks(supabase, {
+  statuses = ["pending", "in_progress"],
+  limit = 20,
+} = {}) {
+  const query = new URLSearchParams({
+    select: "id,description,status,created_by,assigned_to,due_at,updated_at",
+    status: `in.(${statuses.join(",")})`,
+    order: "updated_at.desc",
+    limit: String(limit),
+  });
+  return supabase.select("tasks", query);
+}
+
 export async function getTaskCandidates(supabase, { limit = 25 }) {
   const query = new URLSearchParams({
     select: "id,description,status,created_by,assigned_to,due_at,metadata",

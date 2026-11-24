@@ -23,6 +23,8 @@ mediante Google Search Grounding.
 - `api/weather.mjs`: `POST /api/weather`, consulta autenticada de clima actual y pronóstico mediante Open-Meteo; no llama a Gemini, Tavily ni a la persistencia familiar.
 - `api/members.mjs`: `GET /api/members`, roster para el selector manual.
 - `api/notifications/`: consulta autenticada y ACK de entregas.
+- `api/conversations.mjs`, `api/conversations/messages.mjs`, `api/tasks.mjs`, `api/reminders.mjs` y `api/agenda.mjs`: endpoints de solo lectura para la PWA, autenticados con token de dispositivo o sesión móvil. No modifican datos ni llaman a Gemini/Tavily.
+- `lib/read_api.mjs`: controlador de los endpoints de lectura; `/api/agenda` combina tareas abiertas, recordatorios próximos, cumpleaños y, si se envían coordenadas, un resumen de Open-Meteo.
 - `lib/assistant.mjs`: autenticación, contexto, selección de búsqueda, límites, síntesis y coordinación familiar.
 - `lib/weather_controller.mjs` y `services/weather_*.mjs`: endpoint autenticado, intención, geocoding Open-Meteo, pronóstico y caché en memoria de 30 minutos.
 - `tools/web_search.js`: cliente HTTPS de Tavily Search y Usage.
@@ -239,6 +241,24 @@ sin llamar a Tavily. En una consulta actual, la respuesta debe traer
 El firmware consulta además `GET /api/members`, `GET
 /api/notifications/pending?speaker_id=<UUID>` y `POST
 /api/notifications/ack`. Todos requieren el mismo Bearer de dispositivo.
+
+## Endpoints de lectura de la PWA
+
+Todos son `GET`, aceptan el Bearer de dispositivo o una sesión móvil firmada, y
+responden con `cache-control: no-store`. Con token de dispositivo hay que enviar
+`speaker_id`; con sesión móvil el integrante queda fijado por la sesión.
+
+| Endpoint | Contenido |
+| --- | --- |
+| `GET /api/conversations?limit=20` | Conversaciones recientes del integrante. |
+| `GET /api/conversations/messages?conversation_id=<UUID>&limit=50` | Mensajes de una conversación propia. |
+| `GET /api/tasks?status=open\|all&limit=20` | Tareas de la familia; `open` es el valor por defecto. |
+| `GET /api/reminders?hours=24&limit=10` | Recordatorios pendientes en la ventana indicada. |
+| `GET /api/agenda?latitude=&longitude=` | Tareas abiertas, recordatorios próximos, cumpleaños y clima opcional. |
+
+`/api/agenda` solo consulta Open-Meteo cuando recibe `latitude` y `longitude`
+válidas; si faltan o son inválidas, devuelve `weather: null` sin llamar al
+proveedor. Estos endpoints no escriben en Supabase ni Redis.
 
 ## Acceso de la PWA móvil
 

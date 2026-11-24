@@ -1,6 +1,7 @@
 import { detectWeatherIntent, WEATHER_INTENTS } from "./weather_intent.mjs";
 import { geocodeLocation, WeatherLocationError } from "./weather_geocoding.mjs";
 import { createWeatherService, WeatherApiError } from "./weather_service.mjs";
+import { describeWeatherCode } from "./weather_codes.mjs";
 
 const ARGENTINE_PROVINCES = new Set([
   "Buenos Aires", "Catamarca", "Chaco", "Chubut", "Córdoba", "Corrientes", "Entre Ríos", "Formosa",
@@ -18,29 +19,9 @@ function normalizeText(value) {
   return String(value || "").toLocaleLowerCase("es-AR").normalize("NFD").replace(/\p{Diacritic}/gu, "").trim();
 }
 
-const WEATHER_CODES = new Map([
-  [0, ["Despejado", "☀️"]], [1, ["Mayormente despejado", "🌤️"]],
-  [2, ["Parcialmente nublado", "⛅"]], [3, ["Nublado", "☁️"]],
-  [45, ["Niebla", "🌫️"]], [48, ["Niebla engelante", "🌫️"]],
-  [51, ["Llovizna ligera", "🌦️"]], [53, ["Llovizna moderada", "🌦️"]],
-  [55, ["Llovizna intensa", "🌧️"]], [56, ["Llovizna helada", "🌧️"]],
-  [57, ["Llovizna helada intensa", "🌧️"]], [61, ["Lluvia ligera", "🌦️"]],
-  [63, ["Lluvia moderada", "🌧️"]], [65, ["Lluvia intensa", "🌧️"]],
-  [66, ["Lluvia helada", "🌧️"]], [67, ["Lluvia helada intensa", "🌧️"]],
-  [71, ["Nevada ligera", "🌨️"]], [73, ["Nevada moderada", "🌨️"]],
-  [75, ["Nevada intensa", "❄️"]], [77, ["Granos de nieve", "🌨️"]],
-  [80, ["Chaparrones ligeros", "🌦️"]], [81, ["Chaparrones moderados", "🌧️"]],
-  [82, ["Chaparrones intensos", "⛈️"]], [85, ["Chaparrones de nieve", "🌨️"]],
-  [86, ["Chaparrones fuertes de nieve", "❄️"]], [95, ["Tormenta", "⛈️"]],
-  [96, ["Tormenta con granizo", "⛈️"]], [99, ["Tormenta fuerte con granizo", "⛈️"]],
-]);
-
 function condition(code) {
-  const numericCode = Number(code);
-  if (code === null || code === undefined || !Number.isFinite(numericCode)) {
-    return ["Estado del tiempo no disponible", "🌡️"];
-  }
-  return WEATHER_CODES.get(numericCode) || ["Estado del tiempo no disponible", "🌡️"];
+  const { description, icon } = describeWeatherCode(code);
+  return [description, icon];
 }
 
 function formatTemperature(value) {

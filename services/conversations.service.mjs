@@ -12,6 +12,42 @@ export async function getLatestConversationId(supabase, { memberId }) {
   return rows[0]?.id || null;
 }
 
+export async function listConversations(supabase, { memberId, limit = 20 }) {
+  const query = new URLSearchParams({
+    select: "id,member_id,channel,started_at,ended_at,metadata",
+    member_id: `eq.${memberId}`,
+    order: "started_at.desc",
+    limit: String(limit),
+  });
+  return supabase.select("conversations", query);
+}
+
+export async function listConversationMessages(supabase, {
+  conversationId,
+  memberId,
+  limit = 50,
+}) {
+  const ownerQuery = new URLSearchParams({
+    select: "id",
+    id: `eq.${conversationId}`,
+    member_id: `eq.${memberId}`,
+    limit: "1",
+  });
+  if (!(await supabase.select("conversations", ownerQuery)).length) {
+    const error = new Error("Conversation does not belong to the selected member");
+    error.code = "INVALID_CONVERSATION";
+    throw error;
+  }
+  const messagesQuery = new URLSearchParams({
+    select: "role,content,created_at",
+    conversation_id: `eq.${conversationId}`,
+    role: "in.(user,assistant)",
+    order: "created_at.asc",
+    limit: String(limit),
+  });
+  return supabase.select("messages", messagesQuery);
+}
+
 export async function getConversationHistory(supabase, {
   conversationId,
   memberId,

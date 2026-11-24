@@ -1,3 +1,5 @@
+import { describeWeatherCode } from "./weather_codes.mjs";
+
 const FORECAST_URL = "https://api.open-meteo.com/v1/forecast";
 const CACHE_TTL_MS = 30 * 60 * 1000;
 const CURRENT_FIELDS = [
@@ -130,5 +132,38 @@ export function createWeatherService({ fetchImpl = fetch, clock = () => Date.now
   }
 
   return { getForecast, clearCache: () => cache.clear() };
+}
+
+export function createWeatherSummary({ fetchImpl = fetch, clock = () => Date.now() } = {}) {
+  const service = createWeatherService({ fetchImpl, clock });
+  return async function summarizeWeather(latitude, longitude) {
+    const forecast = await service.getForecast(latitude, longitude);
+    const current = forecast.current || null;
+    const today = forecast.days?.[0] || null;
+    const condition = describeWeatherCode(current?.weather_code);
+    return {
+      source: "Open-Meteo.com",
+      timezone: forecast.timezone,
+      updatedAt: forecast.fetchedAt,
+      current: current ? {
+        time: current.time,
+        temperature: current.temperature_2m,
+        apparentTemperature: current.apparent_temperature,
+        relativeHumidity: current.relative_humidity_2m,
+        precipitation: current.precipitation,
+        windSpeed: current.wind_speed_10m,
+        weatherCode: current.weather_code,
+        description: condition.description,
+        icon: condition.icon,
+      } : null,
+      today: today ? {
+        date: today.date,
+        temperatureMin: today.temperature_2m_min,
+        temperatureMax: today.temperature_2m_max,
+        precipitationProbability: today.precipitation_probability_max,
+        weatherCode: today.weather_code,
+      } : null,
+    };
+  };
 }
 

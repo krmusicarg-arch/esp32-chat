@@ -90,6 +90,18 @@ export async function getMemories(supabase, {
   return birthdays;
 }
 
+export async function getBirthdays(supabase, { limit = 20 } = {}) {
+  const query = new URLSearchParams({
+    select: "id,subject_member_id,category,content,importance,confidence",
+    active: "eq.true",
+    category: "eq.IMPORTANT_EVENTS",
+    content: "ilike.*cumple*",
+    order: "valid_from.desc",
+    limit: String(limit),
+  });
+  return supabase.select("memories", query);
+}
+
 export async function getPreferences(supabase, { memberId, limit = 8 }) {
   const query = new URLSearchParams({
     select: "category,value,confidence,source_message_id",
