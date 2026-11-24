@@ -31,6 +31,19 @@ test("matches a given name that follows the surname in the family roster", () =>
   assert.equal(detectFamilyMessageIntent("Avisale a Karina Ontivero que prepare la comida esta noche", surnameFirst).recipientId, surnameFirst[0].id);
 });
 
+test("recognizes natural voice command variants and transcribed punctuation", () => {
+  const karina = [{ id: "55555555-5555-4555-8555-555555555555", name: "Ontivero Karina" }];
+  for (const phrase of [
+    "Robertito, avisale a Karina que prepare la comida esta noche",
+    "Quiero que le mandes un mensaje a Karina para que prepare la comida esta noche",
+    "Me podés avisar a Karina que prepare la comida esta noche",
+  ]) {
+    const intent = detectFamilyMessageIntent(phrase, karina);
+    assert.equal(intent.type, "send", phrase);
+    assert.equal(intent.recipientId, karina[0].id, phrase);
+  }
+});
+
 test("asks for clarification when a first name is ambiguous", () => {
   const intent = detectFamilyMessageIntent("Decile a Gustavo que compre carne", members);
   assert.equal(intent.type, "clarify");

@@ -6,7 +6,7 @@ const normalize = (value) => String(value || "")
   .replace(/\s+/g, " ")
   .trim();
 
-const SEND_PATTERN = /^(?:por favor\s+)?(?:mand(?:a|á)(?:le|les)?(?:\s+un mensaje)?|envi(?:a|á)(?:me)?\s+un mensaje|avis(?:a|á)(?:le|les)?|dec(?:i|í)(?:le|les)?)\s+(?:a\s+)?(.+?)\s+(?:que|:)\s*(.+)$/iu;
+const SEND_PATTERN = /^(?:(?:robert(?:ito)?|por favor|porfa|quiero(?: que)?|pod[eé]s?|puedes|me pod[eé]s|me puedes)\s+)*(?:(?:le|les)\s+)?(?:mand(?:a|á|ás|e|es|en|ar)|envi(?:a|á|ás|e|es|ar)|avis(?:a|á|ás|e|es|ar)|dec(?:i|í|ís|ir)|dig(?:a|as))(?:le|les)?(?:\s+un mensaje)?\s+(?:a\s+)?(.+?)\s+(?:para\s+que|que|:)\s*(.+)$/iu;
 
 function namedMembers(target, members) {
   const normalizedTarget = normalize(target);
@@ -24,7 +24,9 @@ function namedMembers(target, members) {
 }
 
 export function detectFamilyMessageIntent(question, members = []) {
-  const original = String(question || "").trim().replace(/^(?:robert(?:ito)?)[,\s]+/iu, "");
+  const original = String(question || "").trim()
+    .replace(/^[,\s¿¡]+|[,\s?!.]+$/gu, "")
+    .replace(/^(?:robert(?:ito)?)[,\s:]+/iu, "");
   const normalized = normalize(original);
   const match = original.match(SEND_PATTERN);
   if (match) {
@@ -47,7 +49,7 @@ export function detectFamilyMessageIntent(question, members = []) {
   if (/\b(?:tengo mensajes|mensajes (?:hay )?pendientes|mensajes sin leer|que mensajes recibi|mensajes recibidos)\b/u.test(normalized)) return { type: "unread" };
   if (/\b(?:quien leyo|ley[oó] el mensaje|ley[oó] mi mensaje|ley[oó] el mensaje que mande)\b/u.test(normalized)) return { type: "read_status" };
   if (/\b(?:ultimos mensajes|mensajes de la familia|mostrame los mensajes|que mensajes hay)\b/u.test(normalized)) return { type: "list" };
-  if (/\b(?:mandale|mandales|manda un mensaje|envia un mensaje|avisale|avisales|decile|deciles)\b/u.test(normalized)) {
+  if (/\b(?:mand(?:ale|ales|ar(?:le|les)?|a|as|en)|envi(?:a(?:le|les)?|ar(?:le|les)?|e(?:le|les)?)|avis(?:a(?:le|les)?|ar(?:le|les)?|e(?:le|les)?)|dec(?:i(?:le|les)?|ir(?:le|les)?)|dig(?:a|as))\b/u.test(normalized)) {
     return { type: "clarify", answer: "No pude identificar con seguridad a quién va dirigido el mensaje. No lo envié." };
   }
   return null;
