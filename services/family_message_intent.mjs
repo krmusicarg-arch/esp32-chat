@@ -10,11 +10,16 @@ const SEND_PATTERN = /^(?:por favor\s+)?(?:mand(?:a|á)(?:le|les)?(?:\s+un mensa
 
 function namedMembers(target, members) {
   const normalizedTarget = normalize(target);
+  const targetTokens = normalizedTarget.split(" ").filter(Boolean);
   return members.filter((member) => {
     const name = normalize(member.name);
-    return name === normalizedTarget
-      || name.startsWith(`${normalizedTarget} `)
-      || normalize(name.split(" ")[0]) === normalizedTarget;
+    const nameTokens = name.split(" ").filter(Boolean);
+    if (targetTokens.length > 1) {
+      return targetTokens.length === nameTokens.length
+        && targetTokens.every((token) => nameTokens.includes(token));
+    }
+    return nameTokens.some((token) => token === normalizedTarget
+      || (normalizedTarget.length >= 3 && token.startsWith(normalizedTarget)));
   });
 }
 
@@ -50,10 +55,11 @@ export function detectFamilyMessageIntent(question, members = []) {
 
 export function findMentionedMember(question, members = []) {
   const normalized = normalize(question);
+  const questionTokens = new Set(normalized.split(" "));
   const matches = members.filter((member) => {
     const name = normalize(member.name);
-    const firstName = name.split(" ")[0];
-    return name && (normalized.includes(name) || normalized.split(" ").includes(firstName));
+    const nameTokens = name.split(" ").filter((token) => token.length >= 3);
+    return name && (normalized.includes(name) || nameTokens.some((token) => questionTokens.has(token)));
   });
   return matches.length === 1 ? matches[0] : null;
 }

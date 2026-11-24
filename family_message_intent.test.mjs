@@ -21,6 +21,16 @@ test("detects a direct message while preserving its content", () => {
   });
 });
 
+test("matches a given name that follows the surname in the family roster", () => {
+  const surnameFirst = [{ id: "55555555-5555-4555-8555-555555555555", name: "Ontivero Karina" }];
+  const intent = detectFamilyMessageIntent("Avisale a Karina que prepare la comida esta noche", surnameFirst);
+  assert.equal(intent.type, "send");
+  assert.equal(intent.recipientId, surnameFirst[0].id);
+  assert.equal(intent.recipientName, "Ontivero Karina");
+  assert.equal(intent.content, "prepare la comida esta noche");
+  assert.equal(detectFamilyMessageIntent("Avisale a Karina Ontivero que prepare la comida esta noche", surnameFirst).recipientId, surnameFirst[0].id);
+});
+
 test("asks for clarification when a first name is ambiguous", () => {
   const intent = detectFamilyMessageIntent("Decile a Gustavo que compre carne", members);
   assert.equal(intent.type, "clarify");
