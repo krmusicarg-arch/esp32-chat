@@ -24,12 +24,14 @@ mediante Google Search Grounding.
 - `api/members.mjs`: `GET /api/members`, roster para el selector manual.
 - `api/notifications/`: consulta autenticada y ACK de entregas.
 - `api/conversations.mjs`, `api/conversations/messages.mjs`, `api/tasks.mjs`, `api/reminders.mjs` y `api/agenda.mjs`: endpoints de solo lectura para la PWA, autenticados con token de dispositivo o sesión móvil. No modifican datos ni llaman a Gemini/Tavily.
+- `api/family-messages.mjs` y `lib/family_messages_api.mjs`: mensajería familiar autenticada solo con sesión móvil firmada; el remitente se toma de esa sesión.
 - `lib/read_api.mjs`: controlador de los endpoints de lectura; `/api/agenda` combina tareas abiertas, recordatorios próximos, cumpleaños y, si se envían coordenadas, un resumen de Open-Meteo.
 - `lib/assistant.mjs`: autenticación, contexto, selección de búsqueda, límites, síntesis y coordinación familiar.
 - `lib/weather_controller.mjs` y `services/weather_*.mjs`: endpoint autenticado, intención, geocoding Open-Meteo, pronóstico y caché en memoria de 30 minutos.
 - `tools/web_search.js`: cliente HTTPS de Tavily Search y Usage.
 - `lib/redis_store.mjs`: contadores, reserva atómica, bloqueo de duplicados y caché en Upstash Redis.
 - `database/` y `services/`: persistencia Supabase y gestión de familia, conversaciones, memoria, tareas, recordatorios y contexto proactivo.
+- `services/family_messages.service.mjs` y `services/family_message_intent.mjs`: persistencia e interpretación determinística de mensajes; estas órdenes no pasan por la extracción de memoria.
 
 Redis mantiene límites y caché de búsquedas; Supabase persiste conversaciones y
 datos familiares en el esquema existente `family_assistant`. **No ejecutes
@@ -43,6 +45,14 @@ de `family_assistant` y exige una clave de idempotencia única en
 corregirlas automáticamente. Antes de ejecutarla, coteja constraints, índices y
 estados permitidos con el DDL vigente; no ejecutarla sobre producción sin
 revisar ese resultado.
+
+La migración complementaria `database/migrations/20261124_family_messages.sql`
+usa las tablas `family_messages` y `family_message_reads` ya existentes. Añade
+una clave opcional de idempotencia, reemplaza el cuerpo de la función existente
+`create_family_message_reads()` sin duplicar el trigger y completa recibos
+faltantes de mensajes anteriores. La función también rechaza remitentes o
+destinatarios inactivos en la base. Ejecútala manualmente en Supabase antes de
+habilitar la función. No crea, elimina ni recrea tablas o triggers.
 
 El ESP32 consulta `/api/notifications/pending` cada 30 segundos mientras está
 conectado y en reposo. La base detecta vencimientos al atender ese polling,
@@ -255,10 +265,27 @@ responden con `cache-control: no-store`. Con token de dispositivo hay que enviar
 | `GET /api/tasks?status=open\|all&limit=20` | Tareas de la familia; `open` es el valor por defecto. |
 | `GET /api/reminders?hours=24&limit=10` | Recordatorios pendientes en la ventana indicada. |
 | `GET /api/agenda?latitude=&longitude=` | Tareas abiertas, recordatorios próximos, cumpleaños y clima opcional. |
+| `GET /api/family-messages?limit=50&offset=0` | Historial familiar, integrantes activos y cantidad sin leer. Requiere sesión móvil. |
+| `GET /api/family-messages?unread_only=true` | Mensajes pendientes para el integrante autenticado. |
+| `GET /api/family-messages?message_id=<UUID>` | Estado de lectura individual por integrante. |
+| `POST /api/family-messages` | Envía `{content, recipient_id, request_id}`; `recipient_id: null` significa toda la familia. |
+| `POST /api/family-messages` con `{action:"read", message_id}` | Marca como leído solo para el integrante autenticado. |
 
 `/api/agenda` solo consulta Open-Meteo cuando recibe `latitude` y `longitude`
 válidas; si faltan o son inválidas, devuelve `weather: null` sin llamar al
 proveedor. Estos endpoints no escriben en Supabase ni Redis.
+
+Las rutas de mensajería son la excepción de escritura y aceptan únicamente la
+sesión móvil firmada; el endpoint de chat también interpreta órdenes de mensaje
+por voz o texto en la PWA. Todos los mensajes quedan visibles para integrantes
+activos y el destinatario se destaca como prioritario. La PWA actualiza la
+campanita por polling cada 30 segundos mientras está visible; no requiere push
+y un integrante desconectado verá los mensajes al volver. No se habilitó
+Realtime desde el navegador porque las políticas RLS actuales no dan acceso
+directo a las tablas; el backend conserva el acceso con `service_role`.
+El esquema confirmado no tiene `family_id` y el backend actual representa una
+sola familia; para alojar varias familias en la misma base habrá que incorporar
+esa clave y aplicar el aislamiento correspondiente antes de habilitarlo.
 
 ## Acceso de la PWA móvil
 

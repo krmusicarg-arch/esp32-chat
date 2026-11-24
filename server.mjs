@@ -7,6 +7,7 @@ import { createMobileSessionHandler } from "./lib/mobile_auth.mjs";
 import { createWeatherHandler } from "./lib/weather_controller.mjs";
 import { createReadApiHandler } from "./lib/read_api.mjs";
 import { createWeatherSummary } from "./services/weather_service.mjs";
+import { createFamilyMessagesApiHandler } from "./lib/family_messages_api.mjs";
 
 const config = configFromEnv();
 const supabase = createSupabaseClient(config);
@@ -20,6 +21,7 @@ const familyApiHandler = createFamilyApiHandler({
   supabase,
 });
 const mobileSessionHandler = createMobileSessionHandler({ config, supabase });
+const familyMessagesHandler = createFamilyMessagesApiHandler({ config, supabase });
 const weatherHandler = createWeatherHandler({ config });
 const readApiHandler = createReadApiHandler({
   config,
@@ -44,6 +46,10 @@ const server = createServer((req, res) => {
   }
   if (familyPath === "/mobile/session") {
     mobileSessionHandler(req, res);
+    return;
+  }
+  if (familyPath === "/family-messages") {
+    familyMessagesHandler(req, res);
     return;
   }
   if (familyPath === "/weather") {

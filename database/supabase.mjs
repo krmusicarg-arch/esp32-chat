@@ -84,7 +84,7 @@ export function createSupabaseClient({
       method: "POST",
       query,
       body: row,
-      prefer: "resolution=ignore-duplicates,return=minimal",
+      prefer: "resolution=ignore-duplicates,return=representation",
     }),
     update: (table, query, values) => request(table, {
       method: "PATCH",
