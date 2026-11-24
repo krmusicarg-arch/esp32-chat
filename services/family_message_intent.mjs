@@ -10,6 +10,9 @@ function cleanTarget(target) {
   return String(target || "")
     .trim()
     .replace(/^[,\s¿¡]+|[,\s?!.]+$/gu, "")
+    // Some voice transcripts place the object phrase inside the captured target,
+    // e.g. "Enviale el mensaje a Karina que ...".
+    .replace(/^(?:(?:un|el|este|ese)\s+)?(?:mensaje|aviso)\s+(?:a|para)\s+/iu, "")
     .replace(/^(?:a\s+|para\s+)?(?:(?:la|el|al|los|las|mi|mis)\s+)?/iu, "")
     .replace(/\s+(?:un\s+)?(?:mensaje|aviso|nota)$/iu, "")
     .replace(/[?.!,]+$/u, "")
@@ -25,7 +28,7 @@ function cleanContent(content) {
     .trim();
 }
 
-const SEND_PATTERN = /^(?:(?:hola|buenas|buen d[ií]a|buenas tardes|buenas noches|che|hey)\s+)?(?:(?:robert(?:ito)?)\s*)?[,\s:]*(?:(?:por favor|porfa|quiero(?: que)?|quisiera(?: que)?|necesito(?: que)?|pod[eé]s?|puedes|podr[ií]as?|me pod[eé]s|me puedes|me podr[ií]as?)\s+)*(?:(?:le|les)\s+)?(?:mand(?:a|á|ás|e|es|en|ar)|envi(?:a|á|ás|e|es|ar)|avis(?:a|á|ás|e|es|ar)|dec(?:i|í|ís|ir)|dig(?:a|as))(?:le|les)?(?:\s+(?:un\s+)?(?:mensaje|aviso))?\s+(?:(?:a|para)\s+)?(.+?)(?:\s+(?:un\s+)?(?:mensaje|aviso))?(?:\s*(?:[,.:;]|\s+(?:para\s+que|de\s+que|que|dici[eé]ndo(?:le|les)?(?:\s+que)?|avis[aá]ndo(?:le|les)?(?:\s+que)?|si\s+puede|si)\b)\s*|\s*:\s*)\s*(.+)$/iu;
+const SEND_PATTERN = /^(?:(?:hola|buenas|buen d[ií]a|buenas tardes|buenas noches|che|hey)\s+)?(?:(?:robert(?:ito)?)\s*)?[,\s:]*(?:(?:por favor|porfa|quiero(?: que)?|quisiera(?: que)?|necesito(?: que)?|pod[eé]s?|puedes|podr[ií]as?|me pod[eé]s|me puedes|me podr[ií]as?)\s+)*(?:(?:le|les)\s+)?(?:mand(?:a|á|ás|e|es|en|ar)|envi(?:a|á|ás|e|es|ar)|avis(?:a|á|ás|e|es|ar)|dec(?:i|í|ís|ir)|dig(?:a|as))(?:le|les)?(?:\s+(?:(?:un|el|este|ese)\s+)?(?:mensaje|aviso))?\s+(?:(?:a|para)\s+)?(.+?)(?:\s+(?:un\s+)?(?:mensaje|aviso))?(?:\s*(?:[,.:;]|\s+(?:para\s+que|de\s+que|que|dici[eé]ndo(?:le|les)?(?:\s+que)?|avis[aá]ndo(?:le|les)?(?:\s+que)?|si\s+puede|si)\b)\s*|\s*:\s*)\s*(.+)$/iu;
 
 function namedMembers(target, members) {
   const normalizedTarget = normalize(cleanTarget(target));
