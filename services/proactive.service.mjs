@@ -119,7 +119,7 @@ export function buildFamilyContext({
     )}.`] : []),
     "Usa estos datos solo cuando sean pertinentes. No inventes detalles.",
     "Las memorias pueden referirse a cualquier integrante; distingue siempre a la persona mencionada y no atribuyas sus datos a quien habla.",
-    "Al responder sobre cumpleaños, incluye todas las memorias IMPORTANT_EVENTS cuyo contenido mencione un cumpleaños, aunque subject_member_id sea null; null solo indica que el dato no está vinculado a un integrante activo. Usa el nombre de la persona que aparezca en el contenido y no descartes cumpleaños de amigos u otras personas externas a la familia.",
+    "Al responder sobre cumpleaños, incluye todas las memorias IMPORTANT_EVENTS o FAMILY cuyo contenido mencione un cumpleaños, aunque subject_member_id sea null; null solo indica que el dato no está vinculado a un integrante activo. Usa el nombre de la persona que aparezca en el contenido y no descartes cumpleaños de amigos u otras personas externas a la familia.",
     "No afirmes que enviaste un aviso fuera de esta conversación.",
   ].join(" ");
 }

@@ -56,7 +56,7 @@ export async function getMemories(supabase, {
         select,
         active: "eq.true",
         or: notExpiredFilter,
-        category: "eq.IMPORTANT_EVENTS",
+        category: "in.(IMPORTANT_EVENTS,FAMILY)",
         content: "ilike.*cumple*",
         order: "valid_from.desc",
         limit: "1000",
@@ -84,9 +84,10 @@ export async function getMemories(supabase, {
       .slice(0, Math.min(8, limit));
   }
 
-  const birthdays = scoredRows.filter((row) => row.category === "IMPORTANT_EVENTS"
-    && /\bcumple(?:n|anos)?\b/.test(String(row.content || "").toLocaleLowerCase("es-AR")
-      .normalize("NFD").replace(/[\u0300-\u036f]/g, "")));
+  const birthdays = scoredRows.filter((row) => (
+    /\bcumple(?:n|anos)?\b/.test(String(row.content || "").toLocaleLowerCase("es-AR")
+      .normalize("NFD").replace(/[\u0300-\u036f]/g, ""))
+  ));
   return birthdays;
 }
 
@@ -94,7 +95,7 @@ export async function getBirthdays(supabase, { limit = 20 } = {}) {
   const query = new URLSearchParams({
     select: "id,subject_member_id,category,content,importance,confidence",
     active: "eq.true",
-    category: "eq.IMPORTANT_EVENTS",
+    category: "in.(IMPORTANT_EVENTS,FAMILY)",
     content: "ilike.*cumple*",
     order: "valid_from.desc",
     limit: String(limit),
