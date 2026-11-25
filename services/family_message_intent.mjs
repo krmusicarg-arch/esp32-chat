@@ -56,7 +56,7 @@ export function detectFamilyMessageIntent(question, members = []) {
     const target = cleanTarget(rawTarget);
     const rawContent = match[2].trim();
     const content = cleanContent(rawContent) || rawContent;
-    if (!content) return { type: "clarify", answer: "¿Qué mensaje querés enviar?" };
+    if (!content) return { type: "clarify", answer: "Dale, ¿qué querés que le diga?" };
     if (/^(?:(?:para|a)\s+)?(?:todos|todas|todo el mundo|toda la familia|la familia|el grupo)$/iu.test(rawTarget)
         || /^(?:todos|todas|todo el mundo|toda la familia|la familia|el grupo)$/iu.test(target)) {
       return { type: "send", recipientId: null, recipientName: null, content };
@@ -66,9 +66,9 @@ export function detectFamilyMessageIntent(question, members = []) {
       return { type: "send", recipientId: recipients[0].id, recipientName: recipients[0].name, content };
     }
     if (recipients.length > 1) {
-      return { type: "clarify", answer: `Hay más de un integrante llamado ${target || rawTarget}. Decime el apellido o cómo distinguirlo. No envié el mensaje.` };
+      return { type: "clarify", answer: `Me aparecen varias personas llamadas ${target || rawTarget}. ¿Cuál de ellas? Todavía no envié el mensaje.` };
     }
-    return { type: "clarify", answer: `No encuentro a ${rawTarget} entre los integrantes activos. No envié el mensaje.` };
+    return { type: "clarify", answer: `No encuentro a ${rawTarget} entre los integrantes activos. ¿A quién te referís? Todavía no envié el mensaje.` };
   }
 
   const incompleteSend = original.match(SEND_WITHOUT_CONTENT_PATTERN);
@@ -77,21 +77,37 @@ export function detectFamilyMessageIntent(question, members = []) {
     const target = cleanTarget(rawTarget);
     const recipients = namedMembers(rawTarget, members);
     if (recipients.length === 1) {
-      return { type: "clarify", answer: `¿Qué mensaje querés enviarle a ${recipients[0].name}?` };
+      return { type: "clarify", answer: `Claro, ¿qué querés que le diga a ${recipients[0].name}?` };
     }
     if (recipients.length > 1) {
-      return { type: "clarify", answer: `Hay más de un integrante llamado ${target || rawTarget}. Decime el apellido o cómo distinguirlo. No envié el mensaje.` };
+      return { type: "clarify", answer: `Me aparecen varias personas llamadas ${target || rawTarget}. ¿Cuál de ellas? Todavía no envié el mensaje.` };
     }
-    return { type: "clarify", answer: `No encuentro a ${rawTarget} entre los integrantes activos. No envié el mensaje.` };
+    return { type: "clarify", answer: `No encuentro a ${rawTarget} entre los integrantes activos. ¿A quién te referís? Todavía no envié el mensaje.` };
   }
 
   if (/\b(?:tengo mensajes|mensajes (?:hay )?pendientes|mensajes sin leer|que mensajes recibi|mensajes recibidos)\b/u.test(normalized)) return { type: "unread" };
   if (/\b(?:quien leyo|ley[oó] el mensaje|ley[oó] mi mensaje|ley[oó] el mensaje que mande)\b/u.test(normalized)) return { type: "read_status" };
   if (/\b(?:ultimos mensajes|mensajes de la familia|mostrame los mensajes|que mensajes hay)\b/u.test(normalized)) return { type: "list" };
   if (/\b(?:mand(?:ale|ales|ar(?:le|les)?|a|as|en)|envi(?:a(?:le|les)?|ar(?:le|les)?|e(?:le|les)?)|avis(?:a(?:le|les)?|ar(?:le|les)?|e(?:le|les)?)|dec(?:i(?:le|les)?|ir(?:le|les)?)|dig(?:a|as))\b/u.test(normalized)) {
-    return { type: "clarify", answer: "No pude identificar con seguridad a quién va dirigido el mensaje. No lo envié." };
+    return { type: "clarify", answer: "Quiero asegurarme de mandarlo a la persona correcta. ¿A quién se lo envío?" };
   }
   return null;
+}
+
+export function shouldInterpretFamilyMessage(question, members = []) {
+  const original = String(question || "").trim();
+  const normalized = normalize(original);
+  const hasMessageAction = /\b(?:decir|decile|deciles|dile|diles|avisar|avisale|avisales|contar|contale|contales|escribir|escribile|escribiles|mandar|mandale|mandales|enviar|enviale|enviales|comentar|comentale|comentales|preguntar|preguntale|preguntales|hacerle llegar|hacerles llegar|hacerle saber|hac[eé]le llegar|mensajear|sepa|sepas|sepan|reciba|recibas|reciban)\b/u.test(normalized);
+  if (!hasMessageAction) return false;
+
+  const normalizedNames = members.flatMap((member) => normalize(member.name).split(" "))
+    .filter((token) => token.length >= 3);
+  const questionTokens = new Set(normalized.split(" "));
+  const mentionsMember = normalizedNames.some((name) => questionTokens.has(name));
+  const mentionsFamily = /\b(?:todos|todas|familia|grupo)\b/u.test(normalized);
+  const hasRecipientShape = /\b(?:a|para|con)\s+\p{Letter}/u.test(normalized)
+    || /\b(?:le|les)\s+\p{Letter}/u.test(normalized);
+  return mentionsMember || mentionsFamily || hasRecipientShape;
 }
 
 export function findMentionedMember(question, members = []) {
