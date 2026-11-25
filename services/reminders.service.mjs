@@ -1,12 +1,21 @@
-export async function getUpcomingReminders(supabase, { now, hours = 24, limit = 5 }) {
+export async function getUpcomingReminders(supabase, {
+  now,
+  hours = 24,
+  limit = 5,
+  includeRecurring = false,
+}) {
   const cutoff = new Date(now.getTime() + hours * 60 * 60 * 1000).toISOString();
   const query = new URLSearchParams({
-    select: "id,task_id,title,description,scheduled_at,status,metadata",
+    select: "id,task_id,title,description,scheduled_at,status,recurrence_rule,recurrence_timezone,metadata",
     status: "eq.pending",
-    scheduled_at: `lte.${cutoff}`,
     order: "scheduled_at.asc",
     limit: String(limit),
   });
+  if (includeRecurring) {
+    query.set("or", `(scheduled_at.lte.${cutoff},recurrence_rule.eq.weekly)`);
+  } else {
+    query.set("scheduled_at", `lte.${cutoff}`);
+  }
   return supabase.select("reminders", query);
 }
 
@@ -23,6 +32,7 @@ export async function saveReminders(supabase, { memberId, sourceMessageId, remin
         source_message_id: sourceMessageId,
         reminder_index: index,
       },
+      p_recurrence_rule: reminder.recurrenceRule || "none",
     });
   }
 }

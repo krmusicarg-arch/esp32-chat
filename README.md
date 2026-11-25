@@ -271,6 +271,18 @@ responden con `cache-control: no-store`. Con token de dispositivo hay que enviar
 | `POST /api/family-messages` | Envía `{content, recipient_id, request_id}`; `recipient_id: null` significa toda la familia. |
 | `POST /api/family-messages` con `{action:"read", message_id}` | Marca como leído solo para el integrante autenticado. |
 
+Los recordatorios creados desde el chat requieren que el mensaje empiece con
+`Agenda`. Por ejemplo, `Agenda que todos los miércoles hay descuento en
+empanadas en La Reina` crea una ocurrencia semanal. `scheduled_at` guarda la
+próxima fecha y hora de aviso; `recurrence_rule` indica `weekly` y
+`recurrence_timezone` conserva la zona horaria familiar. Al entregarse a todos
+los integrantes, la próxima fecha avanza siete días de calendario y el estado
+del recordatorio sigue en `pending`. Cuando la promoción termina, se puede
+decirlo claramente para cancelar la repetición.
+
+Antes de desplegar este comportamiento, aplicar la migración
+`database/migrations/20261125_recurring_reminders.sql` en Supabase.
+
 `/api/agenda` solo consulta Open-Meteo cuando recibe `latitude` y `longitude`
 válidas; si faltan o son inválidas, devuelve `weather: null` sin llamar al
 proveedor. Estos endpoints no escriben en Supabase ni Redis.
