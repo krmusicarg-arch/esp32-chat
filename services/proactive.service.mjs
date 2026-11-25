@@ -88,7 +88,9 @@ export function buildFamilyContext({
   const memoryContext = memories.map((item) => ({
     category: item.category,
     subject_member_id: item.subject_member_id,
-    subject_name: memberNames.get(item.subject_member_id) || "la familia",
+    subject_name: item.subject_member_id
+      ? memberNames.get(item.subject_member_id) || "integrante no identificado"
+      : null,
     provided_by_name: memberNames.get(item.metadata?.provided_by_member_id) || "un integrante",
     content: item.content,
     confidence: item.confidence,
@@ -97,8 +99,8 @@ export function buildFamilyContext({
   return [
     `Estás hablando con ${memberName} (integrante ${member.id}).`,
     `Zona horaria familiar: ${settings.timezone}.`,
-    ...(memoryContext.length ? [`Memorias familiares relevantes (visibles para todos los integrantes): ${conciseList(memoryContext, (item) => (
-      `${item.category}, referido a ${item.subject_name}, compartido por ${item.provided_by_name}: ${item.content}`
+    ...(memoryContext.length ? [`Memorias relevantes (visibles para todos los integrantes): ${conciseList(memoryContext, (item) => (
+      `${item.category}${item.subject_name ? `, referido a ${item.subject_name}` : ""}, compartido por ${item.provided_by_name}: ${item.content}`
     ))}.`] : []),
     ...(usePreferenceContext && preferences.length ? [`Preferencias de quien habla: ${conciseList(preferences, (item) => (
       `${item.category}: ${JSON.stringify(item.value)}`
@@ -117,6 +119,7 @@ export function buildFamilyContext({
     )}.`] : []),
     "Usa estos datos solo cuando sean pertinentes. No inventes detalles.",
     "Las memorias pueden referirse a cualquier integrante; distingue siempre a la persona mencionada y no atribuyas sus datos a quien habla.",
+    "Al responder sobre cumpleaños, incluye todas las memorias IMPORTANT_EVENTS cuyo contenido mencione un cumpleaños, aunque subject_member_id sea null; null solo indica que el dato no está vinculado a un integrante activo. Usa el nombre de la persona que aparezca en el contenido y no descartes cumpleaños de amigos u otras personas externas a la familia.",
     "No afirmes que enviaste un aviso fuera de esta conversación.",
   ].join(" ");
 }
