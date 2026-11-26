@@ -64,8 +64,8 @@ aviso del integrante seleccionado.
 ## Google Calendar y Google Tasks con Composio
 
 El chat detecta pedidos como "decime qué tengo agendado para hoy" y consulta
-Google Calendar a través de Composio antes de responder. Calendar sigue siendo
-de solo lectura. Las tareas se consultan y administran en Google Tasks: las
+Google Calendar a través de Composio antes de responder y crea eventos cuando
+el usuario pide “Agenda…” con fecha y hora concretas. Las tareas se consultan y administran en Google Tasks: las
 tablas locales `tasks` y `task_history` ya no son la fuente de tareas del
 asistente. Resuelve la conexión según el integrante seleccionado y el proveedor.
 
@@ -83,11 +83,17 @@ misma conexión. La API key se comparte; los IDs de Calendar y Tasks son cuentas
 separadas. Google Tasks usa el alcance `https://www.googleapis.com/auth/tasks`
 para leer y modificar tareas.
 
-La cuenta conectada necesita al menos el alcance
-`https://www.googleapis.com/auth/calendar.events.readonly`. Si Google expira la
-autorización, hay que reconectar la cuenta en Composio. Si una integración no
-está configurada, el asistente lo informa y no inventa resultados. Calendar usa
-`GOOGLECALENDAR_EVENTS_LIST`; las tareas usan `GOOGLETASKS_LIST_TASKS`,
+La cuenta conectada necesita el alcance
+`https://www.googleapis.com/auth/calendar.events` para crear eventos (y leerlos).
+Si fue conectada con solo `calendar.events.readonly`, actualiza el alcance OAuth
+en Composio y vuelve a conectar la cuenta para conceder permiso de escritura.
+Los eventos “Agenda…” con fecha y hora explícitas se guardan en el Google Calendar
+personal del integrante; la duración es una hora por defecto y respeta la duración
+indicada. “Recordame…”, “Anota…” y recordatorios recurrentes se guardan en la tabla
+familiar `reminders`; un reminder sin fecha recibe mañana a las 09:00 como próxima
+notificación. Si una integración no está configurada, el asistente registra el
+error en el backend. Calendar usa `GOOGLECALENDAR_EVENTS_LIST` y
+`GOOGLECALENDAR_CREATE_EVENT`; las tareas usan `GOOGLETASKS_LIST_TASKS`,
 `GOOGLETASKS_INSERT_TASK` y `GOOGLETASKS_PATCH_TASK`. Sus resultados no se
 persisten en las tablas `tasks` ni `task_history`.
 

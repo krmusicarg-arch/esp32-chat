@@ -1,6 +1,7 @@
 export const CALENDAR_TOOL_SLUG = "GOOGLECALENDAR_EVENTS_LIST";
-export const COMPOSIO_EXECUTE_URL =
-  `https://backend.composio.dev/api/v3.1/tools/execute/${CALENDAR_TOOL_SLUG}`;
+export const CALENDAR_CREATE_TOOL_SLUG = "GOOGLECALENDAR_CREATE_EVENT";
+const COMPOSIO_EXECUTE_BASE = "https://backend.composio.dev/api/v3.1/tools/execute";
+export const COMPOSIO_EXECUTE_URL = `${COMPOSIO_EXECUTE_BASE}/${CALENDAR_TOOL_SLUG}`;
 export const DEFAULT_TIME_ZONE = "America/Argentina/Cordoba";
 
 const MONTHS = new Map([
@@ -360,4 +361,73 @@ export async function listCalendarEvents({
     count: events.length,
     events,
   };
+}
+
+export async function createGoogleCalendarEvent({
+  apiKey,
+  integration,
+  event,
+  timeZone = DEFAULT_TIME_ZONE,
+  fetchImpl = fetch,
+}) {
+  if (!apiKey) throw new CalendarApiError("calendar_not_configured");
+  if (!integration?.connected_account_id || !integration?.composio_user_id) {
+    throw new CalendarApiError("calendar_connection_incomplete");
+  }
+  if (!event?.summary || !event?.startAt || !Number.isInteger(event?.durationMinutes)
+      || event.durationMinutes < 1 || event.durationMinutes > 24 * 60) {
+    throw new CalendarApiError("calendar_event_invalid");
+  }
+  const hours = Math.floor(event.durationMinutes / 60);
+  const minutes = event.durationMinutes % 60;
+  const body = {
+    connected_account_id: integration.connected_account_id,
+    user_id: integration.composio_user_id,
+    version: "latest",
+    arguments: {
+      calendar_id: integration.calendar_id || "primary",
+      summary: event.summary.slice(0, 200),
+      ...(event.description ? { description: event.description.slice(0, 500) } : {}),
+      start_datetime: event.startAt,
+      timezone: timeZone,
+      event_duration_hour: hours,
+      event_duration_minutes: minutes,
+      send_updates: "none",
+    },
+  };
+  let response;
+  try {
+    response = await fetchImpl(`${COMPOSIO_EXECUTE_BASE}/${CALENDAR_CREATE_TOOL_SLUG}`, {
+      method: "POST",
+      headers: { "x-api-key": apiKey, "content-type": "application/json" },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(20000),
+    });
+  } catch (error) {
+    throw new CalendarApiError("calendar_unavailable", error);
+  }
+  let payload = null;
+  try { payload = await response.json(); } catch { payload = null; }
+  if (!response.ok || payload?.successful === false || payload?.error) {
+    const code = response.status === 401 || response.status === 403
+      ? "calendar_unauthorized" : "calendar_unavailable";
+    throw new CalendarApiError(code, null, {
+      http_status: response.status,
+      ...(composioErrorDetails(payload) || {}),
+    });
+  }
+  const data = payload?.data && typeof payload.data === "object" ? payload.data : payload;
+  const eventData = data?.response_data && typeof data.response_data === "object"
+    ? data.response_data : data;
+  console.info("[Google Calendar] event persisted:", JSON.stringify({
+    family_member_id: integration.family_member_id,
+    connected_account_id: integration.connected_account_id,
+    calendar_id: integration.calendar_id || "primary",
+    summary: event.summary.slice(0, 200),
+    start_at: event.startAt,
+    duration_minutes: event.durationMinutes,
+    event_id: typeof eventData?.id === "string" ? eventData.id : null,
+    html_link: typeof eventData?.htmlLink === "string" ? eventData.htmlLink : null,
+  }));
+  return eventData;
 }
