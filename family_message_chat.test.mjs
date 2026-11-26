@@ -123,3 +123,60 @@ test("voice transcript without the preposition still saves for surname-first Kar
   assert.equal(supabase.messages[0].recipient_id, IDS[1]);
   assert.equal(supabase.messages[0].content, "prepare la comida esta noche");
 });
+
+test("resolves recipient in second turn when assistant asked for clarification", async () => {
+  const supabase = new ChatSupabase();
+  const family = [
+    { id: IDS[0], name: "Ruiz Gustavo", active: true },
+    { id: IDS[1], name: "Ontivero Carina", active: true },
+    { id: IDS[2], name: "Ruiz Luisina", active: true },
+    { id: IDS[3], name: "Ruiz Valentin", active: true },
+  ];
+  const select = supabase.select.bind(supabase);
+  supabase.select = async (table, query) => table === "family_members" ? family : select(table, query);
+  const handler = createChatHandler({
+    config: { deviceToken: "device-token-test-0123456789", mobileSessionSecret: SECRET },
+    redis: {},
+    supabase,
+    fetchImpl: async () => { throw new Error("Gemini must not be called for a message command"); },
+  });
+
+  // Turn 1: user asks for an ambiguous or clarifying question
+  const token = createMobileSessionToken(SECRET, IDS[0]);
+  const req1 = {
+    method: "POST",
+    url: "/api/chat",
+    headers: { authorization: `Bearer ${token}` },
+    body: { question: "Mandale a Fulano que nos vemos esta noche" },
+  };
+  const res1 = {
+    writeHead(status) { this.status = status; },
+    end(value) { this.payload = JSON.parse(value); },
+  };
+  await handler(req1, res1);
+  assert.equal(res1.status, 200);
+  assert.equal(res1.payload.status, "clarification_required");
+
+  // Turn 2: user replies with recipient "A Carina"
+  const req2 = {
+    method: "POST",
+    url: "/api/chat",
+    headers: { authorization: `Bearer ${token}` },
+    body: {
+      question: "A Carina",
+      conversation_id: res1.payload.conversation_id,
+      history: [{ question: "Mandale a Fulano que nos vemos esta noche", answer: res1.payload.answer }],
+    },
+  };
+  const res2 = {
+    writeHead(status) { this.status = status; },
+    end(value) { this.payload = JSON.parse(value); },
+  };
+  await handler(req2, res2);
+
+  assert.equal(res2.status, 200);
+  assert.equal(res2.payload.status, "message_sent");
+  assert.equal(supabase.messages.length, 1);
+  assert.equal(supabase.messages[0].recipient_id, IDS[1]);
+  assert.equal(supabase.messages[0].content, "nos vemos esta noche");
+});

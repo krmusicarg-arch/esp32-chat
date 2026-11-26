@@ -10,6 +10,14 @@ import { createWeatherSummary } from "./services/weather_service.mjs";
 import { createFamilyMessagesApiHandler } from "./lib/family_messages_api.mjs";
 import entornoHandler from "./api/entorno.mjs";
 
+try {
+  if (typeof process.loadEnvFile === "function") {
+    process.loadEnvFile();
+  }
+} catch {
+  // .env no existe o el entorno ya tiene las variables
+}
+
 const config = configFromEnv();
 const supabase = createSupabaseClient(config);
 const handler = createChatHandler({

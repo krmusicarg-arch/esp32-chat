@@ -1,4 +1,12 @@
 export default async function entorno(req, res) {
+  if (typeof process.loadEnvFile === "function" && !process.env.TAVILY_API_KEY) {
+    try {
+      process.loadEnvFile();
+    } catch {
+      // .env no existe o ya cargado
+    }
+  }
+
   if (req.method === "OPTIONS") {
     res.writeHead(204, {
       "access-control-allow-origin": "*",

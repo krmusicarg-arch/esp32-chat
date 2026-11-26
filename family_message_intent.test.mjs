@@ -45,11 +45,22 @@ test("recognizes natural voice command variants and transcribed punctuation", ()
     "Mandale mensaje a Karina que prepare la comida",
     "Podrías mandarle a Karina que ya llegué",
     "Decile a Karina si puede comprar pan",
+    "Avísale a Karina que prepare la comida esta noche",
+    "Mándale a Karina que prepare la comida esta noche",
+    "Envíale a Karina que prepare la comida esta noche",
   ]) {
     const intent = detectFamilyMessageIntent(phrase, karina);
     assert.equal(intent.type, "send", phrase);
     assert.equal(intent.recipientId, karina[0].id, phrase);
   }
+});
+
+test("keeps written accents in the content of an accented voice transcript", () => {
+  const carinaRoster = [{ id: "c111", name: "Carina Ruiz" }];
+  const intent = detectFamilyMessageIntent("Avísale a Carina que mañana nos vemos", carinaRoster);
+  assert.equal(intent.type, "send");
+  assert.equal(intent.recipientId, "c111");
+  assert.equal(intent.content, "mañana nos vemos");
 });
 
 test("asks for clarification when a first name is ambiguous", () => {
@@ -77,4 +88,18 @@ test("recognizes family wide messages and queries", () => {
 test("resolves a uniquely mentioned member", () => {
   assert.equal(findMentionedMember("¿María leyó el mensaje?", members), members[2]);
   assert.equal(findMentionedMember("¿Gustavo leyó el mensaje?", members), null);
+});
+
+test("matches phonetically equivalent names like Carina and Karina in both directions", () => {
+  const carinaRoster = [{ id: "c111", name: "Carina Ruiz" }];
+  const intentVoiceKarina = detectFamilyMessageIntent("avisale a Karina que nos vemos esta noche", carinaRoster);
+  assert.equal(intentVoiceKarina.type, "send");
+  assert.equal(intentVoiceKarina.recipientId, "c111");
+  assert.equal(intentVoiceKarina.content, "nos vemos esta noche");
+
+  const karinaRoster = [{ id: "k111", name: "Karina Ruiz" }];
+  const intentVoiceCarina = detectFamilyMessageIntent("avisale a Carina que nos vemos esta noche", karinaRoster);
+  assert.equal(intentVoiceCarina.type, "send");
+  assert.equal(intentVoiceCarina.recipientId, "k111");
+  assert.equal(intentVoiceCarina.content, "nos vemos esta noche");
 });
