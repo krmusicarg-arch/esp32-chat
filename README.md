@@ -61,32 +61,35 @@ cuatro integrantes. No es push: si el ESP32 está apagado o sin conexión, el
 aviso se muestra cuando vuelva a consultar. Un solo ESP32 solo puede mostrar el
 aviso del integrante seleccionado.
 
-## Google Calendar con Composio (solo lectura)
+## Google Calendar y Google Tasks con Composio
 
 El chat detecta pedidos como "decime qué tengo agendado para hoy" y consulta
-Google Calendar a través de Composio antes de responder. Solo lee eventos; no
-crea, modifica ni borra. Resuelve la cuenta de Composio desde
-`family_member_integrations` usando el ID del integrante que hizo la consulta.
+Google Calendar a través de Composio antes de responder. Calendar sigue siendo
+de solo lectura. Las tareas se consultan y administran en Google Tasks: las
+tablas locales `tasks` y `task_history` ya no son la fuente de tareas del
+asistente. Resuelve la conexión según el integrante seleccionado y el proveedor.
 
 | Variable | Requerida | Valor/uso |
 | --- | --- | --- |
-| `COMPOSIO_API_KEY` | Para calendario | Clave de proyecto de Composio; solo en el backend |
+| `COMPOSIO_API_KEY` | Para Calendar y Tasks | Clave de proyecto de Composio; solo en el backend |
 | `COMPOSIO_GOOGLE_CALENDAR_ID` | No | Calendario por defecto si la fila no define uno; `primary` |
 
 Ejecuta `database/migrations/20261126_family_member_integrations.sql` en
-Supabase. Después registra una fila por integrante en
-`family_assistant.family_member_integrations` con su `family_member_id`,
-`composio_user_id` y `connected_account_id` (`ca_...`) de la misma conexión.
-La API key se comparte; los identificadores de conexión se guardan en la tabla.
+Supabase. Luego ejecuta `database/migrations/20261127_google_tasks_provider.sql`
+para habilitar el proveedor `google_tasks`. Registra una fila por integrante y
+proveedor en `family_assistant.family_member_integrations`, con su
+`family_member_id`, `composio_user_id` y `connected_account_id` (`ca_...`) de la
+misma conexión. La API key se comparte; los IDs de Calendar y Tasks son cuentas
+separadas. Google Tasks usa el alcance `https://www.googleapis.com/auth/tasks`
+para leer y modificar tareas.
 
 La cuenta conectada necesita al menos el alcance
 `https://www.googleapis.com/auth/calendar.events.readonly`. Si Google expira la
-autorización, hay que reconectar la cuenta en Composio. Si la integración no
-está configurada, el asistente lo informa y no inventa eventos. El backend
-ejecuta `GOOGLECALENDAR_EVENTS_LIST` con `timeMin`/`timeMax` calculados en la
-zona horaria familiar. Los eventos recuperados se envían al proveedor de IA
-configurado (`AI_PROVIDER`) para redactar la respuesta; no se persisten en
-Supabase ni en Redis.
+autorización, hay que reconectar la cuenta en Composio. Si una integración no
+está configurada, el asistente lo informa y no inventa resultados. Calendar usa
+`GOOGLECALENDAR_EVENTS_LIST`; las tareas usan `GOOGLETASKS_LIST_TASKS`,
+`GOOGLETASKS_INSERT_TASK` y `GOOGLETASKS_PATCH_TASK`. Sus resultados no se
+persisten en las tablas `tasks` ni `task_history`.
 
 ## Desplegar en Vercel Hobby
 
