@@ -8,6 +8,7 @@
   "scripts": {
     "start": "node --env-file=.env server.mjs",
     "dev": "node --env-file=.env server.mjs",
+    "api": "node tools/api_client.mjs",
     "test": "node --test"
   },
   "dependencies": {

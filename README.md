@@ -61,10 +61,37 @@ cuatro integrantes. No es push: si el ESP32 está apagado o sin conexión, el
 aviso se muestra cuando vuelva a consultar. Un solo ESP32 solo puede mostrar el
 aviso del integrante seleccionado.
 
+## Google Calendar con Composio (solo lectura)
+
+El chat detecta pedidos como "decime qué tengo agendado para hoy" y consulta
+Google Calendar a través de Composio antes de responder. Solo lee eventos; no
+crea, modifica ni borra. Resuelve la cuenta de Composio desde
+`family_member_integrations` usando el ID del integrante que hizo la consulta.
+
+| Variable | Requerida | Valor/uso |
+| --- | --- | --- |
+| `COMPOSIO_API_KEY` | Para calendario | Clave de proyecto de Composio; solo en el backend |
+| `COMPOSIO_GOOGLE_CALENDAR_ID` | No | Calendario por defecto si la fila no define uno; `primary` |
+
+Ejecuta `database/migrations/20261126_family_member_integrations.sql` en
+Supabase. Después registra una fila por integrante en
+`family_assistant.family_member_integrations` con su `family_member_id`,
+`composio_user_id` y `connected_account_id` (`ca_...`) de la misma conexión.
+La API key se comparte; los identificadores de conexión se guardan en la tabla.
+
+La cuenta conectada necesita al menos el alcance
+`https://www.googleapis.com/auth/calendar.events.readonly`. Si Google expira la
+autorización, hay que reconectar la cuenta en Composio. Si la integración no
+está configurada, el asistente lo informa y no inventa eventos. El backend
+ejecuta `GOOGLECALENDAR_EVENTS_LIST` con `timeMin`/`timeMax` calculados en la
+zona horaria familiar. Los eventos recuperados se envían al proveedor de IA
+configurado (`AI_PROVIDER`) para redactar la respuesta; no se persisten en
+Supabase ni en Redis.
+
 ## Desplegar en Vercel Hobby
 
 1. Usa el proyecto Supabase existente. Confirma que el esquema
-   `family_assistant` tenga sus 19 tablas, exactamente cuatro integrantes
+   `family_assistant` tenga sus 20 tablas, exactamente cuatro integrantes
    activos y `family_settings.id = 1`, `expected_members = 4`. Confirma además
    que `family_assistant` esté permitido en los esquemas expuestos por la API
    REST y que el rol de backend tenga `USAGE`; el cliente selecciona el esquema
@@ -106,6 +133,8 @@ aviso del integrante seleccionado.
    | `ASSISTANT_MOBILE_ORIGINS` | Para móvil | Orígenes HTTPS de la PWA separados por comas, sin rutas |
    | `WEATHER_DEFAULT_LOCATION` | No | Localidad para fallback cuando la geolocalización no está disponible; por defecto `Buenos Aires, Argentina` |
    | `GEONAMES_USERNAME` | Para clima | Usuario GeoNames configurado solo en el backend; se usa para resolver localidades de Argentina |
+   | `COMPOSIO_API_KEY` | Para calendario | Clave de proyecto de Composio; solo en el backend |
+   | `COMPOSIO_GOOGLE_CALENDAR_ID` | No | Calendario a consultar; por defecto `primary` |
 
 5. Despliega y copia el dominio HTTPS asignado por Vercel.
 6. En el sketch, reemplaza el host de ejemplo de
