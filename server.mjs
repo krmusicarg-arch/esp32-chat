@@ -8,6 +8,7 @@ import { createWeatherHandler } from "./lib/weather_controller.mjs";
 import { createReadApiHandler } from "./lib/read_api.mjs";
 import { createWeatherSummary } from "./services/weather_service.mjs";
 import { createFamilyMessagesApiHandler } from "./lib/family_messages_api.mjs";
+import entornoHandler from "./api/entorno.mjs";
 
 const config = configFromEnv();
 const supabase = createSupabaseClient(config);
@@ -54,6 +55,10 @@ const server = createServer((req, res) => {
   }
   if (familyPath === "/weather") {
     weatherHandler(req, res);
+    return;
+  }
+  if (familyPath === "/entorno") {
+    entornoHandler(req, res);
     return;
   }
   if (READ_API_PATHS.includes(familyPath)) {

@@ -1,0 +1,8 @@
+{
+  "rewrites": [
+    {
+      "source": "/entorno",
+      "destination": "/api/entorno"
+    }
+  ]
+}
