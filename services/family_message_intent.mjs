@@ -66,7 +66,7 @@ export function detectFamilyMessageIntent(question, members = []) {
       return { type: "send", recipientId: recipients[0].id, recipientName: recipients[0].name, content };
     }
     if (recipients.length > 1) {
-      return { type: "clarify", answer: `Me aparecen varias personas llamadas ${target || rawTarget}. ¿Cuál de ellas? Todavía no envié el mensaje.` };
+      return { type: "clarify", answer: `Hay más de un integrante llamado ${target || rawTarget}. ¿A cuál te referís? Todavía no envié el mensaje.` };
     }
     return { type: "clarify", answer: `No encuentro a ${rawTarget} entre los integrantes activos. ¿A quién te referís? Todavía no envié el mensaje.` };
   }
@@ -80,7 +80,7 @@ export function detectFamilyMessageIntent(question, members = []) {
       return { type: "clarify", answer: `Claro, ¿qué querés que le diga a ${recipients[0].name}?` };
     }
     if (recipients.length > 1) {
-      return { type: "clarify", answer: `Me aparecen varias personas llamadas ${target || rawTarget}. ¿Cuál de ellas? Todavía no envié el mensaje.` };
+      return { type: "clarify", answer: `Hay más de un integrante llamado ${target || rawTarget}. ¿A cuál te referís? Todavía no envié el mensaje.` };
     }
     return { type: "clarify", answer: `No encuentro a ${rawTarget} entre los integrantes activos. ¿A quién te referís? Todavía no envié el mensaje.` };
   }
