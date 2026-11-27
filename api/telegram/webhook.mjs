@@ -6,6 +6,7 @@ import { createSupabaseClient } from "../../database/supabase.mjs";
 import { getTelegramUpdateResponse } from "../../services/conversations.service.mjs";
 import {
   createTelegramWebhookHandler,
+  telegramErrorDetails,
   telegramSettingsFromEnv,
 } from "../../lib/telegram_webhook.mjs";
 import { transcribeTelegramVoice } from "../../services/telegram_audio.service.mjs";
@@ -19,15 +20,26 @@ export const maxDuration = 60;
 
 let handler;
 let initializationError;
+let initializationPhase = "config_from_env";
+
+function webhookSecrets() {
+  return [process.env.TELEGRAM_BOT_TOKEN, process.env.TELEGRAM_WEBHOOK_SECRET];
+}
 
 export default async function telegramWebhook(req, res) {
   if (!handler) {
     try {
+      initializationPhase = "config_from_env";
       const config = configFromEnv();
+      initializationPhase = "telegram_settings";
       const settings = telegramSettingsFromEnv();
+      initializationPhase = "upstash_client";
       const redis = createUpstashStore(config);
+      initializationPhase = "supabase_client";
       const supabase = createSupabaseClient(config);
+      initializationPhase = "assistant_handler";
       const chat = createChatHandler({ config, redis, supabase, scheduleBackground: waitUntil });
+      initializationPhase = "telegram_handler";
       handler = createTelegramWebhookHandler({
         settings,
         redis,
@@ -57,53 +69,68 @@ export default async function telegramWebhook(req, res) {
         ),
         processText: async (incoming) => {
           const { memberId, question } = incoming;
-          if (incoming.isPrivate) {
-            await registerTelegramPrivateChat(supabase, {
-              memberId,
-              telegramUserId: incoming.senderId,
-              privateChatId: incoming.chatId,
-            });
-            if (config.telegramBotToken) {
-              await retryMessagesAfterPrivateChatStarts({
-                supabase,
-                botToken: config.telegramBotToken,
+          let phase = "link_private_chat";
+          try {
+            if (incoming.isPrivate) {
+              await registerTelegramPrivateChat(supabase, {
                 memberId,
+                telegramUserId: incoming.senderId,
+                privateChatId: incoming.chatId,
               });
+              if (config.telegramBotToken) {
+                phase = "retry_pending_deliveries";
+                await retryMessagesAfterPrivateChatStarts({
+                  supabase,
+                  botToken: config.telegramBotToken,
+                  memberId,
+                });
+              }
             }
+            phase = "create_mobile_session";
+            const token = createMobileSessionToken(config.mobileSessionSecret, memberId);
+            let status = 500;
+            let responseBody = "";
+            const response = {
+              writeHead(code) { status = code; },
+              end(value) { responseBody = value || ""; },
+            };
+            phase = "run_assistant";
+            await chat({
+              method: "POST",
+              headers: {
+                authorization: `Bearer ${token}`,
+                "x-assistant-channel": "telegram",
+              },
+              body: {
+                speaker_id: memberId,
+                question,
+                telegram_update_id: String(incoming.updateId),
+              },
+            }, response);
+            let payload;
+            try { payload = JSON.parse(responseBody); } catch { payload = null; }
+            if (status < 200 || status >= 300 || !payload || typeof payload.answer !== "string") {
+              const error = new Error("Assistant returned an unsuccessful response");
+              error.code = typeof payload?.status === "string" ? payload.status : "assistant_request_failed";
+              error.status = status;
+              throw error;
+            }
+            return payload.answer;
+          } catch (error) {
+            error.telegramPhase = phase;
+            throw error;
           }
-          const token = createMobileSessionToken(config.mobileSessionSecret, memberId);
-          let status = 500;
-          let responseBody = "";
-          const response = {
-            writeHead(code) { status = code; },
-            end(value) { responseBody = value || ""; },
-          };
-          await chat({
-            method: "POST",
-            headers: {
-              authorization: `Bearer ${token}`,
-              "x-assistant-channel": "telegram",
-            },
-            body: {
-              speaker_id: memberId,
-              question,
-              telegram_update_id: String(incoming.updateId),
-            },
-          }, response);
-          let payload;
-          try { payload = JSON.parse(responseBody); } catch { payload = null; }
-          if (status < 200 || status >= 300 || !payload || typeof payload.answer !== "string") {
-            throw new Error("Assistant request failed");
-          }
-          return payload.answer;
         },
       });
     } catch (error) {
       initializationError = error;
+      console.error("[Telegram] webhook initialization failed", {
+        phase: initializationPhase,
+        ...telegramErrorDetails(error, webhookSecrets()),
+      });
     }
   }
   if (!handler) {
-    console.error("[Telegram] webhook initialization failed:", initializationError?.message || "unknown error");
     res.writeHead(500, { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" });
     res.end(JSON.stringify({ ok: false }));
     return;
