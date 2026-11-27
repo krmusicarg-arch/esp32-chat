@@ -5,6 +5,6 @@ alter table family_assistant.family_member_integrations
 
 alter table family_assistant.family_member_integrations
   add constraint family_member_integrations_provider_check
-  check (provider in ('google_calendar', 'google_tasks'));
+  check (provider in ('google_calendar', 'google_tasks', 'google_gmail'));
 
 commit;

@@ -68,6 +68,18 @@ export async function getCalendarIntegration(supabase, familyMemberId) {
   return rows[0] || null;
 }
 
+export async function getFamilyGmailIntegration(supabase, familyMemberId) {
+  if (!familyMemberId) return null;
+  const query = new URLSearchParams({
+    select: "family_member_id,provider,composio_user_id,connected_account_id,active",
+    family_member_id: `eq.${familyMemberId}`,
+    provider: "eq.google_gmail",
+    active: "eq.true",
+    limit: "1",
+  });
+  return (await supabase.select("family_member_integrations", query))[0] || null;
+}
+
 export async function getFamilyTaskIntegrations(supabase, familyMemberIds) {
   const ids = [...new Set((familyMemberIds || []).filter((id) => MEMBER_ID_PATTERN.test(id)))];
   if (!ids.length) return [];

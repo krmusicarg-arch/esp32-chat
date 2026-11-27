@@ -61,7 +61,7 @@ cuatro integrantes. No es push: si el ESP32 está apagado o sin conexión, el
 aviso se muestra cuando vuelva a consultar. Un solo ESP32 solo puede mostrar el
 aviso del integrante seleccionado.
 
-## Google Calendar y Google Tasks con Composio
+## Google Calendar, Google Tasks y Gmail con Composio
 
 El chat detecta pedidos como "decime qué tengo agendado para hoy" y consulta
 Google Calendar a través de Composio antes de responder y crea eventos cuando
@@ -71,12 +71,12 @@ asistente. Resuelve la conexión según el integrante seleccionado y el proveedo
 
 | Variable | Requerida | Valor/uso |
 | --- | --- | --- |
-| `COMPOSIO_API_KEY` | Para Calendar y Tasks | Clave de proyecto de Composio; solo en el backend |
+| `COMPOSIO_API_KEY` | Para Calendar, Tasks y Gmail | Clave de proyecto de Composio; solo en el backend |
 | `COMPOSIO_GOOGLE_CALENDAR_ID` | No | Calendario por defecto si la fila no define uno; `primary` |
 
 Ejecuta `database/migrations/20261126_family_member_integrations.sql` en
-Supabase. Luego ejecuta `database/migrations/20261127_google_tasks_provider.sql`
-para habilitar el proveedor `google_tasks`. Registra una fila por integrante y
+Supabase. Luego ejecuta `database/migrations/20261126_google_tasks_provider.sql`
+para habilitar los proveedores `google_tasks` y `google_gmail`. Registra una fila por integrante y
 proveedor en `family_assistant.family_member_integrations`, con su
 `family_member_id`, `composio_user_id` y `connected_account_id` (`ca_...`) de la
 misma conexión. La API key se comparte; los IDs de Calendar y Tasks son cuentas
@@ -96,6 +96,18 @@ error en el backend. Calendar usa `GOOGLECALENDAR_EVENTS_LIST` y
 `GOOGLECALENDAR_CREATE_EVENT`; las tareas usan `GOOGLETASKS_LIST_TASKS`,
 `GOOGLETASKS_INSERT_TASK` y `GOOGLETASKS_PATCH_TASK`. Sus resultados no se
 persisten en las tablas `tasks` ni `task_history`.
+
+Gmail es personal de cada integrante y se conecta como proveedor
+`google_gmail`, con el `connected_account_id` activo de Gmail y el mismo
+`composio_user_id` de esa cuenta. El chat permite buscar con la sintaxis normal
+de Gmail, resumir/leer correos, consultar y aplicar etiquetas, crear borradores,
+enviar por orden explícita, archivar y mover correos a Papelera. No ejecuta
+borrado permanente. Un pedido genérico de limpiar la bandeja devuelve resultados
+y pide precisar qué hacer; el archivado, el etiquetado y la Papelera requieren
+una instrucción expresa. Usa `GMAIL_FETCH_EMAILS`,
+`GMAIL_FETCH_MESSAGE_BY_MESSAGE_ID`, `GMAIL_LIST_LABELS`,
+`GMAIL_BATCH_MODIFY_MESSAGES`, `GMAIL_MOVE_TO_TRASH`, `GMAIL_CREATE_LABEL`,
+`GMAIL_CREATE_EMAIL_DRAFT` y `GMAIL_SEND_EMAIL` a través de Composio.
 
 ## Desplegar en Vercel Hobby
 
