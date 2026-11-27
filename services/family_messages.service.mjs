@@ -4,7 +4,15 @@ function uuidList(ids) {
   return `in.(${ids.filter((id) => UUID_PATTERN.test(id)).join(",")})`;
 }
 
-export async function createFamilyMessage(supabase, { senderId, recipientId = null, content, requestId, members }) {
+export async function createFamilyMessage(supabase, {
+  senderId,
+  recipientId = null,
+  content,
+  requestId,
+  members,
+  sourceChannel = "pwa",
+  telegramUpdateId = null,
+}) {
   if (!members.some((member) => member.id === senderId)) {
     const error = new Error("Sender is not an active family member");
     error.code = "INVALID_SPEAKER";
@@ -28,12 +36,15 @@ export async function createFamilyMessage(supabase, { senderId, recipientId = nu
   }
 
   const conflictQuery = new URLSearchParams({ on_conflict: "sender_id,client_request_id" });
-  const inserted = await supabase.upsertIgnore("family_messages", {
+  const messageRow = {
     sender_id: senderId,
     recipient_id: recipientId,
     content: text,
     client_request_id: requestId,
-  }, conflictQuery);
+    ...(sourceChannel !== "pwa" ? { source_channel: sourceChannel } : {}),
+    ...(telegramUpdateId ? { telegram_update_id: String(telegramUpdateId) } : {}),
+  };
+  const inserted = await supabase.upsertIgnore("family_messages", messageRow, conflictQuery);
   if (inserted[0]) return { message: inserted[0], duplicate: false };
 
   const existingQuery = new URLSearchParams({
@@ -54,7 +65,7 @@ export async function createFamilyMessage(supabase, { senderId, recipientId = nu
 
 export async function listFamilyMessages(supabase, { limit = 50, offset = 0 }) {
   const query = new URLSearchParams({
-    select: "id,sender_id,recipient_id,content,created_at,client_request_id",
+    select: "id,sender_id,recipient_id,content,created_at,client_request_id,source_channel",
     order: "created_at.desc",
     limit: String(limit),
     offset: String(offset),
@@ -72,7 +83,7 @@ export async function getUnreadFamilyMessages(supabase, { memberId, limit = 50 }
   const messageIds = [...new Set(unreadReads.map((read) => read.message_id))];
   if (messageIds.length === 0) return { count: 0, messages: [] };
   const messagesQuery = new URLSearchParams({
-    select: "id,sender_id,recipient_id,content,created_at,client_request_id",
+    select: "id,sender_id,recipient_id,content,created_at,client_request_id,source_channel",
     id: uuidList(messageIds),
     order: "created_at.desc",
     limit: String(limit),

@@ -9,6 +9,7 @@ import { createReadApiHandler } from "./lib/read_api.mjs";
 import { createWeatherSummary } from "./services/weather_service.mjs";
 import { createFamilyMessagesApiHandler } from "./lib/family_messages_api.mjs";
 import entornoHandler from "./api/entorno.mjs";
+import telegramWebhookHandler from "./api/telegram/webhook.mjs";
 
 try {
   if (typeof process.loadEnvFile === "function") {
@@ -59,6 +60,10 @@ const server = createServer((req, res) => {
   }
   if (familyPath === "/family-messages") {
     familyMessagesHandler(req, res);
+    return;
+  }
+  if (familyPath === "/telegram/webhook") {
+    telegramWebhookHandler(req, res);
     return;
   }
   if (familyPath === "/weather") {

@@ -14,12 +14,17 @@ const members = [
 class FakeSupabase {
   messages = [];
   reads = [];
+  deliveries = [];
   nextId = 1;
 
   async select(table, query) {
     const params = query instanceof URLSearchParams ? query : new URLSearchParams(query);
     if (table === "family_settings") return [{ id: 1, expected_members: 4 }];
-    if (table === "family_members") return members;
+    if (table === "family_members") return members.map((member) => ({
+      ...member,
+      telegram_user_id: member.telegram_user_id || null,
+      telegram_private_chat_id: member.telegram_private_chat_id || null,
+    }));
     if (table === "family_messages") {
       let rows = [...this.messages];
       const id = params.get("id");
@@ -36,6 +41,7 @@ class FakeSupabase {
       const limit = Number(params.get("limit") || 100);
       return rows.slice(offset, offset + limit);
     }
+    if (table === "notification_deliveries") return this.deliveries;
     if (table === "family_message_reads") {
       let rows = [...this.reads];
       const messageId = params.get("message_id");
@@ -49,7 +55,15 @@ class FakeSupabase {
     return [];
   }
 
-  async upsertIgnore(_table, row) {
+  async upsertIgnore(table, row) {
+    if (table === "notification_deliveries") {
+      const found = this.deliveries.find((item) => item.family_message_id === row.family_message_id
+        && item.member_id === row.member_id && item.channel === row.channel);
+      if (found) return [];
+      const delivery = { ...row, id: `delivery-${this.deliveries.length + 1}` };
+      this.deliveries.push(delivery);
+      return [delivery];
+    }
     const found = this.messages.find((item) => item.sender_id === row.sender_id && item.client_request_id === row.client_request_id);
     if (found) return [];
     const message = { ...row, id: `aaaaaaaa-aaaa-4aaa-8aaa-${String(this.nextId++).padStart(12, "0")}`, created_at: new Date().toISOString() };
@@ -60,8 +74,15 @@ class FakeSupabase {
     return [message];
   }
 
-  async update(_table, query, values) {
+  async update(table, query, values) {
     const params = new URLSearchParams(query);
+    if (table === "notification_deliveries") {
+      const target = this.deliveries.find((row) => row.id === params.get("id")?.slice(3)
+        && (!params.get("delivery_status") || row.delivery_status === params.get("delivery_status").slice(3)));
+      if (!target) return [];
+      Object.assign(target, values);
+      return [target];
+    }
     const target = this.reads.find((row) => row.message_id === params.get("message_id")?.slice(3)
       && row.member_id === params.get("member_id")?.slice(3) && !row.read_at);
     if (!target) return [];
@@ -94,6 +115,38 @@ test("directed messages create one row and individual receipts for every other m
   assert.equal(response.status, 201);
   assert.equal(supabase.messages.length, 1);
   assert.deepEqual(supabase.reads.map((read) => read.member_id).sort(), members.slice(1).map((member) => member.id).sort());
+});
+
+test("PWA family message records Telegram delivery and returns its status", async () => {
+  const telegramMembers = members.map((member, index) => ({
+    ...member,
+    telegram_private_chat_id: index === 1 ? "222222222" : null,
+  }));
+  const supabase = new FakeSupabase();
+  const originalSelect = supabase.select.bind(supabase);
+  supabase.select = async (table, query) => table === "family_members"
+    ? telegramMembers
+    : originalSelect(table, query);
+  const handler = createFamilyMessagesApiHandler({
+    config: { mobileSessionSecret: SECRET, telegramBotToken: "test-token" },
+    supabase,
+    fetchImpl: async (url, options) => {
+      assert.match(String(url), /sendMessage$/);
+      assert.equal(JSON.parse(options.body).chat_id, "222222222");
+      return Response.json({ ok: true, result: { message_id: 88 } });
+    },
+  });
+  const response = await request(handler, {
+    method: "POST",
+    body: {
+      content: "Llego a las ocho",
+      recipient_id: members[1].id,
+      request_id: "abababab-abab-4bab-8bab-abababababab",
+    },
+  });
+  assert.equal(response.status, 201);
+  assert.deepEqual(response.payload.telegramDelivery, [{ memberId: members[1].id, status: "sent" }]);
+  assert.equal(supabase.deliveries[0].delivery_status, "sent");
 });
 
 test("same request id is idempotent and the session identity controls read receipts", async () => {

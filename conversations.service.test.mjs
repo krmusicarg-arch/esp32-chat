@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  getTelegramUpdateResponse,
   getConversationHistory,
   getLatestConversationId,
 } from "./services/conversations.service.mjs";
@@ -9,6 +10,25 @@ const MEMBER_A = "a0b1c2d3-e4f5-4a67-8b90-123456789abc";
 const MEMBER_B = "b1c2d3e4-f5a6-4789-8b01-23456789abcd";
 const CONVERSATION_A = "c2d3e4f5-a6b7-4890-8c12-3456789abcde";
 const CONVERSATION_B = "d3e4f5a6-b7c8-4901-8d23-456789abcdef";
+
+test("Telegram update lookup returns the stored answer without replaying it", async () => {
+  const queries = [];
+  const db = {
+    async select(table, query) {
+      queries.push({ table, query: query.toString() });
+      return query.get("role") === "eq.user"
+        ? [{ conversation_id: CONVERSATION_A, content: "¿Qué tenemos mañana?" }]
+        : [{ content: "Tenés un turno." }];
+    },
+  };
+  const answer = await getTelegramUpdateResponse(db, {
+    memberId: MEMBER_A,
+    telegramUpdateId: "123456",
+  });
+  assert.equal(answer, "Tenés un turno.");
+  assert.equal(queries.length, 2);
+  assert.ok(queries.every(({ query }) => query.includes("metadata-%3E%3Etelegram_update_id=eq.123456")));
+});
 
 class ConversationStore {
   constructor(conversations, messages) {

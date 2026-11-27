@@ -94,6 +94,7 @@ export async function saveConversation(supabase, {
   searchedWeb,
   channel = "esp32",
   subjectMemberId = null,
+  telegramUpdateId = null,
 }) {
   let id = conversationId;
   if (id) {
@@ -132,7 +133,10 @@ export async function saveConversation(supabase, {
       sender_member_id: memberId,
       subject_member_id: subjectMemberId,
       created_at: userCreatedAt,
-      metadata: { searched_web: searchedWeb },
+      metadata: {
+        searched_web: searchedWeb,
+        ...(telegramUpdateId ? { telegram_update_id: String(telegramUpdateId) } : {}),
+      },
     },
     {
       id: assistantMessageId,
@@ -142,10 +146,35 @@ export async function saveConversation(supabase, {
       sender_member_id: null,
       subject_member_id: memberId,
       created_at: assistantCreatedAt,
-      metadata: { searched_web: searchedWeb },
+      metadata: {
+        searched_web: searchedWeb,
+        ...(telegramUpdateId ? { telegram_update_id: String(telegramUpdateId) } : {}),
+      },
     },
   ]);
   return { conversationId: id, userMessageId, assistantMessageId };
+}
+
+export async function getTelegramUpdateResponse(supabase, { memberId, telegramUpdateId }) {
+  if (!telegramUpdateId) return null;
+  const userQuery = new URLSearchParams({
+    select: "conversation_id,content",
+    sender_member_id: `eq.${memberId}`,
+    role: "eq.user",
+    "metadata->>telegram_update_id": `eq.${telegramUpdateId}`,
+    limit: "1",
+  });
+  const userMessage = (await supabase.select("messages", userQuery))[0];
+  if (!userMessage) return null;
+  const assistantQuery = new URLSearchParams({
+    select: "content",
+    conversation_id: `eq.${userMessage.conversation_id}`,
+    role: "eq.assistant",
+    "metadata->>telegram_update_id": `eq.${telegramUpdateId}`,
+    limit: "1",
+  });
+  const assistantMessage = (await supabase.select("messages", assistantQuery))[0];
+  return assistantMessage?.content || null;
 }
 
 export async function setMessageSubject(supabase, messageId, subjectMemberId) {

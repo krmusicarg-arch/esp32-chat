@@ -20,6 +20,7 @@ mediante Google Search Grounding.
 
 - `server.mjs`: punto de entrada local existente; atiende `/health`, `/chat`, `/api/chat` y `/api/weather`.
 - `api/chat.mjs`: función Vercel en `POST /api/chat`, usando el mismo handler.
+- `api/telegram/webhook.mjs`: webhook de Telegram; valida el secreto, limita el acceso a los cuatro integrantes configurados y reutiliza el handler de `/api/chat`.
 - `api/weather.mjs`: `POST /api/weather`, consulta autenticada de clima actual y pronóstico mediante Open-Meteo; no llama a Gemini, Tavily ni a la persistencia familiar.
 - `api/members.mjs`: `GET /api/members`, roster para el selector manual.
 - `api/notifications/`: consulta autenticada y ACK de entregas.
@@ -45,6 +46,90 @@ de `family_assistant` y exige una clave de idempotencia única en
 corregirlas automáticamente. Antes de ejecutarla, coteja constraints, índices y
 estados permitidos con el DDL vigente; no ejecutarla sobre producción sin
 revisar ese resultado.
+
+## Telegram
+
+La ruta webhook es `POST /api/telegram/webhook` (localmente también
+`/api/telegram/webhook`). El bot token y el secreto solo se configuran en el
+backend de Vercel. El header `X-Telegram-Bot-Api-Secret-Token` se valida antes
+de leer o procesar el update. Upstash reserva `update_id` con `NX` para evitar
+procesamiento concurrente o respuestas duplicadas.
+
+Variables nuevas del backend:
+
+| Variable | Uso |
+| --- | --- |
+| `TELEGRAM_BOT_TOKEN` | Token privado del bot. |
+| `TELEGRAM_WEBHOOK_SECRET` | Secreto URL-safe de 32 a 256 caracteres, compartido con `setWebhook`. |
+| `TELEGRAM_MEMBER_MAP` | JSON con entre uno y cuatro pares `telegram_user_id: family_member_uuid`; enlaza solo miembros ya existentes. |
+| `TELEGRAM_GROUP_CHAT_ID` | ID numérico del grupo autorizado. Si se omite, se deshabilita el grupo. |
+
+Ejemplo de forma (reemplazar los marcadores en Vercel; no pegar IDs reales en
+el repositorio):
+
+```json
+{"<telegram_user_id_1>":"<family_member_uuid_1>","<telegram_user_id_2>":"<family_member_uuid_2>"}
+```
+
+El objeto puede contener uno, dos, tres o cuatro pares. Los familiares que no
+usen Telegram se omiten; siguen siendo miembros válidos para los demás canales.
+
+En privado, solo los IDs mapeados se procesan; el nombre visible no se usa para
+autenticar. Un update privado enlaza el `telegram_user_id` y `chat_id` con la
+fila existente de `family_members`, y no crea miembros. Si el usuario no está
+enlazado, recibe una explicación genérica sin acceso al contexto familiar.
+
+Los mensajes de texto y voz del grupo autorizado se registran en la tabla
+existente `family_messages`, con la identidad del autor y claves Telegram para
+deduplicar. La PWA los muestra en el historial familiar. Robert responde a una
+mención o respuesta directa; también puede contestar consultas familiares
+útiles detectadas por reglas acotadas, con un intervalo mínimo de tres minutos
+entre intervenciones automáticas. Las preguntas sobre conversaciones consultan
+los mensajes compartidos recientes y los pasan al mismo contexto de Robert,
+tanto desde Telegram como desde la PWA. El contenido del grupo se trata como
+datos no confiables, nunca como instrucciones.
+
+Las órdenes “mandale/avisale a…” usan el intérprete y la tabla de mensajes
+familiar existentes. Antes de llamar a Telegram se crea una entrega en
+`notification_deliveries`, vinculada al `family_message_id`. Se guardan estados,
+intentos y el ID de mensaje que devuelve Telegram. Errores 429 confirmados se
+reintentan de forma acotada; los fallos inciertos se guardan sin repetir el
+envío a ciegas. Si el destinatario aún no inició el chat privado, el mensaje
+queda en Robert, el remitente recibe esa explicación y el backend reintenta esa
+entrega cuando el destinatario inicie el bot.
+
+Los mensajes de voz se descargan por `getFile`, con validación de ruta, tamaño
+y MIME. El backend admite hasta 14 MiB para que el audio codificado no supere
+el límite de la solicitud inline de Gemini. La transcripción reutiliza la clave
+y el modelo Gemini ya configurados; no agrega dependencias. Telegram limita
+actualmente `getFile` a 20 MB y Gemini documenta audio inline para solicitudes
+menores de 20 MB ([Telegram Bot API](https://core.telegram.org/bots/api),
+[Gemini Audio](https://ai.google.dev/gemini-api/docs/audio)). La transcripción
+se procesa como texto por el mismo asistente. No se almacena el archivo de
+audio. El reconocimiento y la síntesis de voz actuales de la PWA no cambian.
+
+Aplicar manualmente, después de revisar, la migración
+`database/migrations/20261127_telegram_family_messaging.sql` en Supabase antes
+de desplegar el backend con Telegram habilitado. La migración agrega columnas e
+índices a `family_members`, `family_messages`, `messages` y
+`notification_deliveries`; no crea usuarios ni tablas paralelas. Relaja
+`reminder_id` para que una fila de `notification_deliveries` pueda pertenecer a
+un recordatorio existente o a un mensaje familiar, nunca a ambos.
+
+Para inicializar `TELEGRAM_MEMBER_MAP`, obtené los IDs numéricos de Telegram
+antes de configurar el webhook y asociá cada ID al UUID correcto existente en
+Supabase. Después, desplegá y registrá
+`https://<dominio-del-backend>/api/telegram/webhook` mediante `setWebhook`, con
+el mismo `TELEGRAM_WEBHOOK_SECRET` y `allowed_updates` limitado a `message`.
+Nunca guardes el token en comandos persistidos, logs ni documentación. Cada
+integrante debe iniciar el chat privado con el bot antes de que Robert pueda
+enviarle un mensaje.
+
+Las actualizaciones se deduplican en Upstash y mediante los IDs de origen en
+Supabase; las respuestas privadas conservan `telegram_update_id` en el mensaje
+existente. Las entregas a familiares se reclaman con estado para que dos
+ejecuciones concurrentes no envíen dos veces. No configures webhook en Telegram
+hasta haber aplicado la migración y desplegado estas funciones.
 
 La migración complementaria `database/migrations/20261124_family_messages.sql`
 usa las tablas `family_messages` y `family_message_reads` ya existentes. Añade
